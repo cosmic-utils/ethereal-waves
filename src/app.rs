@@ -272,11 +272,10 @@ impl cosmic::Application for AppModel {
             futures::future::pending::<()>().await;
         });
 
-        let rdnn_xdg_dirs = xdg::BaseDirectories::with_prefix(APP_ID);
         let app_xdg_dirs = xdg::BaseDirectories::with_prefix("ethereal-waves");
 
         // Build out artwork cache directory
-        let artwork_dir = rdnn_xdg_dirs
+        let artwork_dir = app_xdg_dirs
             .get_cache_home()
             .map(|p| p.join("artwork"))
             .unwrap_or(PathBuf::new());
