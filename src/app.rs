@@ -2074,6 +2074,19 @@ impl AppModel {
             self.nav.remove(entity);
         }
 
+        // Remove from playlists
+        self.playlists.retain(|p| p.id() != id);
+
+        // Remove from playlist_nav_order (fixes menu issue!)
+        self.state.playlist_nav_order.retain(|&pid| pid != id);
+
+        // Save the updated state so it persists
+        if let Some(state_handler) = &self.state_handler {
+            let _ = self
+                .state
+                .set_playlist_nav_order(&state_handler, self.state.playlist_nav_order.clone());
+        }
+
         Ok(())
     }
 

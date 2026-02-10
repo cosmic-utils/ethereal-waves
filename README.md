@@ -11,7 +11,7 @@ A basic music player based on libcosmic. It's still very much a work in progress
 - Ogg
 - Opus
 - Flac
-- WAV
+- Wav
 
 ## Planned Features
 Non-exhaustive list of planned features in no particular order:
