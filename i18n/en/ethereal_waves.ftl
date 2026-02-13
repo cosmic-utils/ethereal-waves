@@ -13,6 +13,7 @@ updating-library = Updating Library
 scanning-paths = Scanning paths...
 loading = Loading...
 untitled-playlist = Untitled Playlist
+not-in-library = Track is not in library
 
 # Menu
 file = File
