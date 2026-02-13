@@ -103,19 +103,18 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
             });
 
             if !is_in_library {
-                // Track is not in library - show info icon with tooltip
-                let icon = widget::icon::from_name("help-about-symbolic").size(16);
+                // Track is not in library, show indicator
+                let icon_with_indicator = widget::row()
+                    .spacing(2)
+                    .align_y(Alignment::Center)
+                    .push(widget::icon::from_name("help-about-symbolic").size(16));
 
                 row_element = row_element.push(
-                    widget::container(widget::tooltip(
-                        icon,
-                        widget::text(fl!("not-in-library")),
-                        widget::tooltip::Position::Top,
-                    ))
-                    .width(Length::Fixed(view_model.icon_column_width))
-                    .align_x(Alignment::Center)
-                    .align_y(Alignment::Center)
-                    .height(view_model.row_height),
+                    widget::container(icon_with_indicator)
+                        .width(Length::Fixed(view_model.icon_column_width))
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center)
+                        .height(view_model.row_height),
                 );
             } else {
                 row_element = row_element.push(
