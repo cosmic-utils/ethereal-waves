@@ -1111,6 +1111,8 @@ impl cosmic::Application for AppModel {
 
                 // Update the library playlist with new data
                 if let Some(lib_playlist) = self.playlists.iter_mut().find(|p| p.is_library()) {
+                    let library_id = lib_playlist.id();
+
                     lib_playlist.clear(); // Clear existing tracks
                     for (path, metadata) in &self.library.media {
                         let mut track = Track::new();
@@ -1123,6 +1125,8 @@ impl cosmic::Application for AppModel {
                         self.state.sort_by.clone(),
                         self.state.sort_direction.clone(),
                     );
+
+                    self.update_playback_session_for_library(library_id);
                 }
             }
 
@@ -1354,6 +1358,8 @@ impl cosmic::Application for AppModel {
 
                 // Update the library playlist with new data
                 if let Some(lib_playlist) = self.playlists.iter_mut().find(|p| p.is_library()) {
+                    let library_id = lib_playlist.id();
+
                     lib_playlist.clear(); // Clear existing tracks
                     for (path, metadata) in &self.library.media {
                         let mut track = Track::new();
@@ -1365,6 +1371,8 @@ impl cosmic::Application for AppModel {
                         self.state.sort_by.clone(),
                         self.state.sort_direction.clone(),
                     );
+
+                    self.update_playback_session_for_library(library_id);
                 }
             }
 
@@ -2605,6 +2613,84 @@ impl AppModel {
             return true;
         }
         true
+    }
+
+    /// Updates the playback session when the library playlist is modified
+    /// Preserves the current track and maintains shuffle order when possible
+    fn update_playback_session_for_library(&mut self, library_id: u32) {
+        // Get the current track ID before we take mutable borrows
+        let current_track_id = self.get_current_playing_id();
+
+        let Some(session) = &mut self.playback_session else {
+            return;
+        };
+
+        // Only update if the session is playing from the library
+        if session.playlist_id != library_id {
+            return;
+        }
+
+        let Some(lib_playlist) = self.playlists.iter().find(|p| p.id() == library_id) else {
+            return;
+        };
+
+        // Update tracks in the existing order with fresh metadata
+        let mut updated_order = Vec::new();
+
+        for old_track in &session.order {
+            if let Some(old_id) = &old_track.metadata.id {
+                // Find the updated version of this track
+                if let Some(new_track) = lib_playlist
+                    .tracks()
+                    .iter()
+                    .find(|t| t.metadata.id.as_ref() == Some(old_id))
+                {
+                    updated_order.push(new_track.clone());
+                }
+            }
+        }
+
+        // If shuffle wasn't enabled before, or if tracks were added/removed,
+        // we need to handle new/missing tracks
+        if updated_order.len() != lib_playlist.tracks().len() {
+            // Some tracks were added or removed from the library
+            if self.state.shuffle {
+                // Re-shuffle if shuffle is enabled
+                updated_order = lib_playlist.tracks().to_vec();
+                updated_order.shuffle(&mut rand::rng());
+            } else {
+                // Use the sorted playlist order
+                updated_order = lib_playlist.tracks().to_vec();
+            }
+        }
+
+        // Find current track in updated order
+        let new_index = if let Some(ref id) = current_track_id {
+            updated_order.iter().position(|t| {
+                t.metadata
+                    .id
+                    .as_ref()
+                    .map_or(false, |track_id| track_id == id)
+            })
+        } else {
+            None
+        };
+
+        // If the currently playing track was removed, stop playback
+        if new_index.is_none() && current_track_id.is_some() {
+            // The track that was playing is no longer in the library
+            self.player.stop();
+            self.playback_status = PlaybackStatus::Stopped;
+            self.playback_session = None;
+            self.now_playing = None;
+            return;
+        }
+
+        session.order = updated_order;
+        session.index = new_index.unwrap_or(0);
+
+        // Update now_playing with fresh metadata
+        self.update_now_playing();
     }
 }
 
