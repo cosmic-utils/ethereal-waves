@@ -1,4 +1,5 @@
 use crate::app::PlaylistId;
+use crate::constants::PLAYLISTS_DIR;
 //use crate::library::MediaMetaData;
 use crate::playlist::{Playlist, Track};
 use anyhow::{Result, anyhow};
@@ -37,7 +38,7 @@ impl PlaylistService {
         self.playlists.push(library);
 
         // Load user playlists
-        let playlist_dir = self.xdg_dirs.create_data_directory("playlists")?;
+        let playlist_dir = self.xdg_dirs.create_data_directory(PLAYLISTS_DIR)?;
 
         for entry in fs::read_dir(playlist_dir)? {
             let entry = entry?;

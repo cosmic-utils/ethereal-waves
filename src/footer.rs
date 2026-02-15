@@ -3,6 +3,7 @@
 use crate::app::PlaybackStatus;
 use crate::app::{AppModel, Message};
 use crate::fl;
+use crate::helpers::*;
 use crate::library::MediaMetaData;
 use cosmic::widget::tooltip::Position;
 use cosmic::{
@@ -121,7 +122,7 @@ pub fn footer<'a>(app: &AppModel) -> Element<'a, Message> {
                 .align_y(Alignment::Center)
                 .spacing(space_xxs)
                 .width(Length::Fill)
-                .push(widget::text(app.display_playback_progress()))
+                .push(widget::text(format_time(app.playback_progress)))
                 .push(
                     widget::slider(
                         0.0..=now_playing.duration.unwrap_or(0.0),
@@ -130,7 +131,10 @@ pub fn footer<'a>(app: &AppModel) -> Element<'a, Message> {
                     )
                     .on_release(Message::ReleaseSlider),
                 )
-                .push(widget::text(app.display_time_left())),
+                .push(widget::text(format_time_left(
+                    app.playback_progress,
+                    now_playing.duration.unwrap_or(0.0),
+                ))),
         )
         // Spacer above controls
         .push(widget::vertical_space().height(space_xxs))

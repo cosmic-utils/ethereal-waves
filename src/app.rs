@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use crate::config::{AppTheme, CONFIG_VERSION, Config, State};
+use crate::constants::*;
 use crate::fl;
 use crate::footer::footer;
+use crate::helpers::*;
 use crate::image_store::ImageStore;
 use crate::key_bind::key_binds;
 use crate::library::Library;
@@ -199,9 +201,6 @@ pub enum Message {
 /// Unique identifier in RDNN (reverse domain name notation) format.
 pub const APP_ID: &'static str = "com.github.LotusPetal392.ethereal-waves";
 
-const NEW_PLAYLIST_INPUT_ID: &str = "new_playlist_input_id";
-const RENAME_PLAYLIST_INPUT_ID: &str = "rename_playlist_input_id";
-
 /// Create a COSMIC application from the app model
 impl cosmic::Application for AppModel {
     /// The async executor that will be used to run your application's commands.
@@ -282,7 +281,7 @@ impl cosmic::Application for AppModel {
         // Build out artwork cache directory
         let artwork_dir = app_xdg_dirs
             .get_cache_home()
-            .map(|p| p.join("artwork"))
+            .map(|p| p.join(ARTWORK_DIR))
             .unwrap_or(PathBuf::new());
 
         // Construct the app model with the runtime's core.
@@ -327,7 +326,7 @@ impl cosmic::Application for AppModel {
             shift_pressed: 0,
             view_playlist: None,
             playback_session: None,
-            search_id: widget::Id::new("Text Search"),
+            search_id: widget::Id::new(SEARCH_INPUT_ID),
             search_term: None,
             mpris_rx,
             playback_status: PlaybackStatus::Stopped,
@@ -356,7 +355,7 @@ impl cosmic::Application for AppModel {
         if self.search_term.is_some() {
             elements.push(
                 widget::text_input::search_input("", self.search_term.clone().unwrap())
-                    .width(Length::Fixed(240.0))
+                    .width(Length::Fixed(SEARCH_INPUT_WIDTH))
                     .id(self.search_id.clone())
                     .on_clear(Message::SearchClear)
                     .on_input(Message::SearchInput)
@@ -576,7 +575,9 @@ impl cosmic::Application for AppModel {
         ];
 
         // Tick
-        subscriptions.push(iced::time::every(Duration::from_millis(100)).map(|_| Message::Tick));
+        subscriptions.push(
+            iced::time::every(Duration::from_millis(TICK_INTERVAL_MS)).map(|_| Message::Tick),
+        );
 
         Subscription::batch(subscriptions)
     }
@@ -726,11 +727,8 @@ impl cosmic::Application for AppModel {
                 let now = Instant::now();
 
                 if let Some(last) = self.list_last_clicked {
-                    let elapsed = now.duration_since(last);
-
-                    if elapsed <= Duration::from_millis(400) {
-                        // Double-click detected - play the track
-
+                    // If double click, play the track
+                    if is_double_click(last, DOUBLE_CLICK_THRESHOLD_MS) {
                         // Check if we need to create a new session (different playlist or no session)
                         let needs_new_session = self
                             .playback_session
@@ -811,8 +809,11 @@ impl cosmic::Application for AppModel {
                         DialogPage::NewPlaylist(name) => {
                             match self.playlist_service.create(name) {
                                 Ok(id) => {
-                                    // Rebuild nav with new playlist
                                     self.view_playlist = Some(id);
+
+                                    // Rebuild nav preserving order
+                                    let items = self.build_ordered_nav_items();
+                                    self.rebuild_nav_from_order(items, id);
                                 }
                                 Err(err) => {
                                     eprintln!("Error creating playlist: {}", err);
@@ -824,6 +825,10 @@ impl cosmic::Application for AppModel {
                             match self.playlist_service.rename(id, name) {
                                 Ok(_) => {
                                     self.view_playlist = Some(id);
+
+                                    // Rebuild nav preserving order
+                                    let items = self.build_ordered_nav_items();
+                                    self.rebuild_nav_from_order(items, id);
                                 }
                                 Err(err) => {
                                     eprintln!("Error renaming playlist: {}", err);
@@ -835,9 +840,18 @@ impl cosmic::Application for AppModel {
                             match self.playlist_service.delete(id) {
                                 Ok(_) => {
                                     // Switch to library view
-                                    if let Ok(library) = self.playlist_service.get_library() {
-                                        self.view_playlist = Some(library.id());
-                                    }
+                                    let library_id =
+                                        if let Ok(library) = self.playlist_service.get_library() {
+                                            library.id()
+                                        } else {
+                                            return Task::none();
+                                        };
+
+                                    self.view_playlist = Some(library_id);
+
+                                    // Rebuild nav preserving order
+                                    let items = self.build_ordered_nav_items();
+                                    self.rebuild_nav_from_order(items, library_id);
                                 }
                                 Err(err) => {
                                     eprintln!("Error deleting playlist: {}", err);
@@ -846,9 +860,14 @@ impl cosmic::Application for AppModel {
                         }
 
                         DialogPage::DeleteSelectedFromPlaylist => {
-                            self.playlist_service
-                                .remove_selected(self.view_playlist.unwrap())
-                                .ok();
+                            let playlist_id = match self.view_playlist {
+                                Some(id) => id,
+                                None => return Task::none(),
+                            };
+
+                            if let Err(err) = self.playlist_service.remove_selected(playlist_id) {
+                                eprintln!("Error removing tracks: {}", err);
+                            }
                         }
                     };
                 };
@@ -978,10 +997,8 @@ impl cosmic::Application for AppModel {
                 let scroll_offset = viewport.absolute_offset().y;
                 let viewport_height = viewport.bounds().height;
 
-                // Calculate row stride directly (same logic as in calculate_list_view)
-                let row_height = 5.0 * self.size_multiplier;
-                let divider_height = 1.0;
-                let row_stride = row_height + divider_height;
+                let row_stride =
+                    calculate_row_stride(self.size_multiplier, BASE_ROW_HEIGHT, DIVIDER_HEIGHT);
 
                 // Update scroll position
                 if scroll_offset == 0.0 || row_stride == 0.0 {
@@ -1163,14 +1180,9 @@ impl cosmic::Application for AppModel {
             }
 
             Message::RemoveSelectedFromPlaylist => {
-                let playlist_id = match self.view_playlist {
-                    Some(id) => id,
-                    None => return Task::none(),
-                };
-
-                if let Err(err) = self.playlist_service.remove_selected(playlist_id) {
-                    eprintln!("Error removing tracks: {}", err);
-                }
+                // Show confirmation dialog
+                self.dialog_pages
+                    .push_back(DialogPage::DeleteSelectedFromPlaylist);
             }
 
             Message::SearchActivate => {
@@ -1403,14 +1415,6 @@ impl cosmic::Application for AppModel {
 
                 std::thread::spawn(move || {
                     let mut library: Library = Library::new();
-                    let valid_extensions = [
-                        "flac".to_string(),
-                        "m4a".to_string(),
-                        "mp3".to_string(),
-                        "ogg".to_string(),
-                        "opus".to_string(),
-                        "wav".to_string(),
-                    ];
 
                     // Get paths
                     for path in library_paths {
@@ -1425,8 +1429,8 @@ impl cosmic::Application for AppModel {
                                 .to_lowercase();
                             let size = entry.metadata().unwrap().len();
 
-                            if valid_extensions.contains(&extension.to_string())
-                                && size > 4096 as u64
+                            if VALID_AUDIO_EXTENSIONS.contains(&extension.as_str())
+                                && size > MIN_FILE_SIZE
                             {
                                 library
                                     .media
@@ -1447,10 +1451,12 @@ impl cosmic::Application for AppModel {
                     let update_total: f32 = library.media.len() as f32;
 
                     let mut last_progress_update: Instant = std::time::Instant::now();
-                    let update_progress_interval: Duration = std::time::Duration::from_millis(200);
+                    let update_progress_interval: Duration =
+                        std::time::Duration::from_millis(PROGRESS_UPDATE_INTERVAL_MS);
 
                     let mut last_library_update: Instant = std::time::Instant::now();
-                    let update_library_interval: Duration = std::time::Duration::from_secs(10);
+                    let update_library_interval: Duration =
+                        std::time::Duration::from_secs(LIBRARY_UPDATE_INTERVAL_SECS);
 
                     let mut entries: Vec<(PathBuf, MediaMetaData)> =
                         library.media.into_iter().collect();
@@ -1458,11 +1464,12 @@ impl cosmic::Application for AppModel {
                     let mut completed_entries: HashMap<PathBuf, MediaMetaData> = HashMap::new();
 
                     entries.iter_mut().for_each(|(file, track_metadata)| {
-                        let discoverer =
-                            match pbutils::Discoverer::new(gst::ClockTime::from_seconds(5)) {
-                                Ok(discoverer) => discoverer,
-                                Err(error) => panic!("Failed to create discoverer: {:?}", error),
-                            };
+                        let discoverer = match pbutils::Discoverer::new(
+                            gst::ClockTime::from_seconds(GSTREAMER_TIMEOUT_SECS),
+                        ) {
+                            Ok(discoverer) => discoverer,
+                            Err(error) => panic!("Failed to create discoverer: {:?}", error),
+                        };
 
                         let file_str = match file.to_str() {
                             Some(file_str) => file_str,
@@ -1590,20 +1597,20 @@ impl cosmic::Application for AppModel {
             }
 
             Message::ZoomIn => {
-                self.size_multiplier = self.size_multiplier + 2.0;
-                if self.size_multiplier > 30.0 {
-                    self.size_multiplier = 30.0;
-                }
-
+                self.size_multiplier = clamp(
+                    self.size_multiplier + ZOOM_STEP,
+                    MIN_SIZE_MULTIPLIER,
+                    MAX_SIZE_MULTIPLIER,
+                );
                 state_set!(size_multiplier, self.size_multiplier);
             }
 
             Message::ZoomOut => {
-                self.size_multiplier = self.size_multiplier - 2.0;
-                if self.size_multiplier < 4.0 {
-                    self.size_multiplier = 4.0;
-                }
-
+                self.size_multiplier = clamp(
+                    self.size_multiplier - ZOOM_STEP,
+                    MIN_SIZE_MULTIPLIER,
+                    MAX_SIZE_MULTIPLIER,
+                );
                 state_set!(size_multiplier, self.size_multiplier);
             }
         }
@@ -1763,7 +1770,7 @@ impl AppModel {
             Some(playlist) => playlist.selected(),
             None => vec![],
         };
-        let take = 10;
+        let take = LIST_PREVIEW_ITEMS;
 
         let mut column = widget::column().spacing(space_xs);
 
@@ -1854,37 +1861,7 @@ impl AppModel {
         cosmic::command::set_theme(self.config.app_theme.theme())
     }
 
-    /// Calculate the playback time
-    pub fn display_playback_progress(&self) -> String {
-        let minutes = (self.playback_progress / 60.0) as u32;
-        let seconds = f32::trunc(self.playback_progress) as u32 - (minutes * 60);
-        format!("{}:{:02}", minutes, seconds)
-    }
-
-    pub fn display_time_left(&self) -> String {
-        if self.now_playing.is_some() {
-            let now_playing = &self.now_playing.as_ref().unwrap();
-            let duration = now_playing.duration.unwrap_or(0.0);
-
-            let mut time_left = duration - self.playback_progress;
-            if time_left < 0.0 {
-                time_left = 0.0;
-            }
-            if time_left > duration {
-                time_left = duration;
-            }
-
-            let minutes = (time_left / 60.0) as u32;
-            let seconds = f32::trunc(time_left) as u32 - (minutes * 60);
-
-            return format!("-{}:{:02}", minutes, seconds);
-        }
-
-        String::from("-0.00")
-    }
-
     /// Load library and playlists
-    // Decide nav order
     pub fn load_data(&mut self) -> Task<cosmic::Action<Message>> {
         // Load library from disk
         let library_media = Self::load_library(&self.app_xdg_dirs).unwrap_or_default();
@@ -1984,7 +1961,7 @@ impl AppModel {
         xdg_dirs: &BaseDirectories,
     ) -> anyhow::Result<HashMap<PathBuf, MediaMetaData>> {
         let mut media: HashMap<PathBuf, MediaMetaData> = xdg_dirs
-            .get_data_file("library.json")
+            .get_data_file(LIBRARY_FILENAME)
             .map(|path| {
                 let content = fs::read_to_string(path)?;
                 Ok::<_, anyhow::Error>(serde_json::from_str(&content)?)
@@ -1996,49 +1973,6 @@ impl AppModel {
         media.retain(|_, v| v.id.is_some());
 
         Ok(media)
-    }
-
-    /// Load playlist files
-    pub fn load_playlists(&self) -> anyhow::Result<Vec<Playlist>> {
-        // Make sure playlist path exists
-        let playlist_path = self.app_xdg_dirs.create_data_directory("playlists")?;
-
-        let mut playlists: Vec<Playlist> = Vec::new();
-
-        // Read in all the json files in the directory
-        for file in fs::read_dir(playlist_path)? {
-            let file = file?;
-            let file_path = file.path();
-
-            if file_path.extension().and_then(|e| e.to_str()) == Some("json") {
-                let contents = fs::read_to_string(&file_path)?;
-                playlists.push(serde_json::from_str(&contents)?);
-            }
-        }
-
-        Ok(playlists)
-    }
-
-    fn save_playlists(&self, id: Option<u32>) -> anyhow::Result<()> {
-        let playlist_path = self.app_xdg_dirs.create_data_directory("playlists")?;
-
-        // Make sure path exists
-        let _ = fs::create_dir_all(&playlist_path);
-
-        if id.is_some() {
-            let filename = format!("{}.json", id.unwrap());
-            let file_path = playlist_path.join(&filename);
-
-            if let Some(playlist) = self.playlist_service.get(id.unwrap()).ok() {
-                let json_data =
-                    serde_json::to_string(playlist).expect("Failed to serialize playlist");
-                let mut file = File::create(file_path).expect("Failed to create playlist file");
-                file.write_all(json_data.as_bytes())
-                    .expect("Failed to write JSON data to file");
-            }
-        }
-
-        Ok(())
     }
 
     fn rebuild_nav_from_order(&mut self, items: Vec<NavPlaylistItem>, activate_id: u32) {
@@ -2370,9 +2304,10 @@ impl AppModel {
         let mut list_start = self.list_start;
         let tracks_len = visible_tracks.len();
 
-        let row_height = 5.0 * self.size_multiplier;
-        let divider_height = 1.0;
-        let row_stride = row_height + divider_height;
+        let row_height = self.size_multiplier * BASE_ROW_HEIGHT;
+
+        let row_stride =
+            calculate_row_stride(self.size_multiplier, BASE_ROW_HEIGHT, DIVIDER_HEIGHT);
 
         let list_end = (list_start + self.list_visible_row_count + 1).min(tracks_len);
 
@@ -2423,7 +2358,6 @@ impl AppModel {
             viewport_height,
             is_playing_playlist,
             row_height,
-            divider_height,
             scroll_offset: scroll_offset,
             wrapping,
             row_align,
@@ -2450,12 +2384,6 @@ impl AppModel {
     fn get_active_playlist(&self) -> Option<&Playlist> {
         self.view_playlist
             .and_then(|id| self.playlist_service.get(id).ok())
-    }
-
-    /// Safely get a mutable reference to the active playlist by ID
-    fn get_active_playlist_mut(&mut self) -> Option<&mut Playlist> {
-        let id = self.view_playlist?;
-        self.playlist_service.get_mut(id).ok()
     }
 
     /// Safely get a playlist by ID
@@ -2627,6 +2555,49 @@ impl AppModel {
         // Update now_playing with fresh metadata
         self.update_now_playing();
     }
+
+    /// Build nav items respecting the saved order
+    fn build_ordered_nav_items(&self) -> Vec<NavPlaylistItem> {
+        if !self.state.playlist_nav_order.is_empty() {
+            // Start with saved order
+            let mut ordered_items: Vec<NavPlaylistItem> = self
+                .state
+                .playlist_nav_order
+                .iter()
+                .filter_map(|pid| {
+                    self.playlist_service
+                        .get(*pid)
+                        .ok()
+                        .map(|p| NavPlaylistItem {
+                            id: *pid,
+                            name: p.name().to_string(),
+                        })
+                })
+                .collect();
+
+            // Add any playlists that aren't in the saved order (newly created ones)
+            let ordered_ids: HashSet<_> = ordered_items.iter().map(|item| item.id).collect();
+            for playlist in self.playlist_service.user_playlists() {
+                if !ordered_ids.contains(&playlist.id()) {
+                    ordered_items.push(NavPlaylistItem {
+                        id: playlist.id(),
+                        name: playlist.name().to_string(),
+                    });
+                }
+            }
+
+            ordered_items
+        } else {
+            // No saved order, just use all playlists
+            self.playlist_service
+                .user_playlists()
+                .map(|p| NavPlaylistItem {
+                    id: p.id(),
+                    name: p.name().to_string(),
+                })
+                .collect()
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -2729,7 +2700,7 @@ fn cache_image(sample: gst::Sample, xdg_dirs: BaseDirectories) -> Option<String>
     let map = buffer.map_readable().ok();
     let hash = digest(map.as_ref().unwrap().as_slice());
     let file_name = format!("{hash}.{mime}");
-    let full_path = match xdg_dirs.place_cache_file(format!("artwork/{file_name}")) {
+    let full_path = match xdg_dirs.place_cache_file(format!("{ARTWORK_DIR}/{file_name}")) {
         Ok(full_path) => full_path,
         Err(_) => return None,
     };
@@ -2886,7 +2857,6 @@ pub struct ListViewModel {
     pub viewport_height: f32,
     pub is_playing_playlist: bool,
     pub row_height: f32,
-    pub divider_height: f32,
     pub scroll_offset: f32,
     pub wrapping: Wrapping,
     pub row_align: Alignment,

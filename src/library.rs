@@ -9,6 +9,8 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use xdg::BaseDirectories;
 
+use crate::constants::LIBRARY_FILENAME;
+
 #[derive(Debug, Clone)]
 pub struct Library {
     pub media: HashMap<PathBuf, MediaMetaData>,
@@ -23,7 +25,7 @@ impl Library {
 
     // Save the current media to the home data directory
     pub fn save(&self, app_xdg_dirs: &BaseDirectories) -> Result<(), Box<dyn Error>> {
-        let file_path = app_xdg_dirs.place_data_file("library.json").unwrap();
+        let file_path = app_xdg_dirs.place_data_file(LIBRARY_FILENAME).unwrap();
         let file = File::create(file_path)?;
         let mut writer = BufWriter::new(file);
         serde_json::to_writer(&mut writer, &self.media)?;

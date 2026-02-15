@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
+use crate::helpers::clamp;
 use gst::prelude::*;
 use gstreamer::{self as gst};
 
@@ -54,6 +55,6 @@ impl Player {
     }
 
     pub fn set_volume(&mut self, volume: f64) {
-        self.playbin.set_property("volume", volume);
+        self.playbin.set_property("volume", clamp(volume, 0.0, 1.0));
     }
 }

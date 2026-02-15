@@ -2,7 +2,9 @@
 
 mod app;
 mod config;
+mod constants;
 mod footer;
+mod helpers;
 mod i18n;
 mod image_store;
 mod key_bind;

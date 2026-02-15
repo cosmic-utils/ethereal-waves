@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use crate::app::{AppModel, Message, SortBy};
+use crate::constants::*;
 use crate::fl;
 use cosmic::{
     cosmic_theme,
@@ -189,7 +190,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
         if !is_last_visible {
             rows = rows.push(
                 widget::container(widget::divider::horizontal::default())
-                    .height(Length::Fixed(view_model.divider_height))
+                    .height(Length::Fixed(DIVIDER_HEIGHT))
                     .align_x(Alignment::Center)
                     .align_y(Alignment::Center)
                     .clip(true),
