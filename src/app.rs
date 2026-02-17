@@ -1878,7 +1878,10 @@ impl AppModel {
                     session.order.get(session.index).and_then(|playing_track| {
                         let playing_id = playing_track.metadata.id.clone()?;
                         let current_id = track.metadata.id.clone()?;
-                        Some(playing_id == current_id)
+                        Some(
+                            playing_id == current_id
+                                && playing_track.date_added == track.date_added,
+                        )
                     })
                 })
                 .unwrap_or(false)

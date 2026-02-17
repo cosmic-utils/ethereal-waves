@@ -113,6 +113,7 @@ impl PlaybackService {
                     .position(|t| {
                         t.metadata.id.clone().unwrap_or_default()
                             == clicked.metadata.id.clone().unwrap_or_default()
+                            && t.date_added == clicked.date_added
                     })
                     .unwrap_or(0)
             } else {
