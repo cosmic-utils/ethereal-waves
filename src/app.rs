@@ -43,6 +43,7 @@ use cosmic::{
         nav_bar, row, settings, text, toggler,
     },
 };
+
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::{
@@ -1020,9 +1021,18 @@ impl cosmic::Application for AppModel {
                         // Start playback from current view
                         if let Some(playlist_id) = self.view_playlist {
                             if let Ok(playlist) = self.playlist_service.get(playlist_id) {
+                                // Pick random starting index if shuffle is enabled
+                                let start_index =
+                                    if self.state.shuffle && !playlist.tracks().is_empty() {
+                                        use rand::Rng;
+                                        rand::rng().random_range(0..playlist.tracks().len())
+                                    } else {
+                                        0
+                                    };
+
                                 self.playback_service.start_session(
                                     playlist,
-                                    0,
+                                    start_index,
                                     self.state.shuffle,
                                 );
                                 self.playback_service.play();
