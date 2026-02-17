@@ -9,7 +9,7 @@ use crate::image_store::ImageStore;
 use crate::key_bind::key_binds;
 use crate::library::Library;
 use crate::menu::menu_bar;
-use crate::mpris::{MediaPlayer2, MediaPlayer2Player, MprisCommand};
+use crate::mpris::{MediaPlayer2, MediaPlayer2Player, MprisCommand, MprisState};
 use crate::page::empty_library;
 use crate::page::list_view;
 use crate::page::loading;
@@ -126,6 +126,9 @@ pub struct AppModel {
     pub image_store: ImageStore,
 
     pub playlist_service: PlaylistService,
+
+    mpris_state: Arc<Mutex<MprisState>>,
+    mpris_connection: Option<zbus::Connection>,
 }
 
 /// Messages emitted by the application and its widgets.
@@ -226,40 +229,37 @@ impl cosmic::Application for AppModel {
 
         // Initialize MPRIS
         let (mpris_tx, mpris_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (conn_tx, _) = std::sync::mpsc::sync_channel(1);
+        let mpris_state = Arc::new(Mutex::new(MprisState::default()));
+        let mpris_state_clone = mpris_state.clone();
+        let (conn_tx, conn_rx) = std::sync::mpsc::sync_channel(1);
 
         tokio::spawn(async move {
             let connection = zbus::Connection::session().await.unwrap();
-
             connection
                 .object_server()
                 .at("/org/mpris/MediaPlayer2", MediaPlayer2)
                 .await
                 .unwrap();
-
             connection
                 .object_server()
                 .at(
                     "/org/mpris/MediaPlayer2",
                     MediaPlayer2Player {
                         tx: mpris_tx,
-                        playback_status: Arc::new(Mutex::new(PlaybackStatus::Stopped)),
+                        state: mpris_state_clone,
                     },
                 )
                 .await
                 .unwrap();
-
             connection
                 .request_name("org.mpris.MediaPlayer2.ethereal-waves")
                 .await
                 .unwrap();
-
-            // Send clone back to the app
             let _ = conn_tx.send(connection.clone());
-
-            // Keep alive
             futures::future::pending::<()>().await;
         });
+
+        let mpris_connection = conn_rx.recv().ok();
 
         let app_xdg_dirs = xdg::BaseDirectories::with_prefix("ethereal-waves");
 
@@ -291,6 +291,8 @@ impl cosmic::Application for AppModel {
             library_service: LibraryService::new(Arc::new(app_xdg_dirs.clone())),
             library_update_cancel: None,
             playback_service: PlaybackService::new(mpris_rx),
+            mpris_state,
+            mpris_connection,
             initial_load_complete: false,
             library: Library::new(),
             is_updating: false,
@@ -1159,19 +1161,60 @@ impl cosmic::Application for AppModel {
                 for cmd in commands {
                     println!("mpris message: {:?}", cmd);
                     match cmd {
-                        MprisCommand::Play => self.playback_service.play(),
-                        MprisCommand::Pause => self.playback_service.pause(),
-                        MprisCommand::PlayPause => self.playback_service.play_pause(),
-                        MprisCommand::Stop => self.playback_service.stop(),
-                        MprisCommand::Next => self
-                            .playback_service
-                            .next(self.state.repeat_mode.clone(), self.state.repeat),
-                        MprisCommand::Previous => {
-                            self.playback_service.prev(self.state.repeat_mode.clone())
+                        MprisCommand::Play => {
+                            self.start_session_maybe();
+                            self.playback_service.play();
                         }
-                        _ => {}
+                        MprisCommand::Pause => self.playback_service.pause(),
+                        MprisCommand::PlayPause => {
+                            self.start_session_maybe();
+                            self.playback_service.play_pause();
+                        }
+                        MprisCommand::Stop => self.playback_service.stop(),
+                        MprisCommand::Next => {
+                            self.start_session_maybe();
+                            self.playback_service
+                                .next(self.state.repeat_mode.clone(), self.state.repeat);
+                        }
+                        MprisCommand::Previous => {
+                            self.start_session_maybe();
+                            self.playback_service.prev(self.state.repeat_mode.clone());
+                        }
+                        MprisCommand::Seek(offset_us) => {
+                            let current = self.playback_service.progress();
+                            let new_pos = (current + offset_us as f32 / 1_000_000.0).max(0.0);
+                            self.playback_service.seek(new_pos);
+                        }
+                        MprisCommand::SetPosition(pos_us) => {
+                            self.playback_service.seek(pos_us as f32 / 1_000_000.0);
+                        }
+                        MprisCommand::SetVolume(vol) => {
+                            let volume = (vol * 100.0).clamp(0.0, 100.0) as i32;
+                            state_set!(volume, volume);
+                            self.playback_service.set_volume(vol);
+                        }
+                        MprisCommand::SetLoopStatus(status) => match status.as_str() {
+                            "None" => {
+                                state_set!(repeat, false);
+                            }
+                            "Track" => {
+                                state_set!(repeat, true);
+                                state_set!(repeat_mode, RepeatMode::One);
+                            }
+                            "Playlist" => {
+                                state_set!(repeat, true);
+                                state_set!(repeat_mode, RepeatMode::All);
+                            }
+                            _ => {}
+                        },
+                        MprisCommand::SetShuffle(shuffle) => {
+                            state_set!(shuffle, shuffle);
+                            // update session shuffle as in ToggleShuffle handler
+                        }
                     }
                 }
+
+                self.update_mpris();
             }
 
             Message::ToggleContextPage(context_page) => {
@@ -1666,6 +1709,154 @@ impl AppModel {
 
         self.initial_load_complete = true;
         Task::none()
+    }
+
+    fn update_mpris(&self) {
+        let Some(conn) = &self.mpris_connection else {
+            return;
+        };
+        let mut state = self.mpris_state.lock().unwrap();
+
+        state.playback_status = self.playback_service.status();
+        state.shuffle = self.state.shuffle;
+        state.loop_status = match (self.state.repeat, &self.state.repeat_mode) {
+            (false, _) => "None".to_string(),
+            (true, RepeatMode::One) => "Track".to_string(),
+            (true, RepeatMode::All) => "Playlist".to_string(),
+        };
+        state.volume = self.state.volume as f64 / 100.0;
+        state.position = (self.playback_service.progress() * 1_000_000.0) as i64;
+
+        // Build metadata
+        let mut meta = HashMap::new();
+        if let Some(now_playing) = self.playback_service.now_playing() {
+            // Track ID
+            let track_id = format!(
+                "/com/github/LotusPetal392/etherealwaves/track/{}",
+                now_playing
+                    .id
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string())
+                    .replace("-", "_")
+            );
+
+            if let Ok(obj_path) = zbus::zvariant::ObjectPath::try_from(track_id) {
+                meta.insert(
+                    "mpris:trackid".to_string(),
+                    zbus::zvariant::Value::new(obj_path).into(),
+                );
+            }
+
+            // Title
+            if let Some(title) = &now_playing.title {
+                meta.insert(
+                    "xesam:title".to_string(),
+                    zbus::zvariant::Value::new(title.clone()).into(),
+                );
+            }
+
+            // Artist (as array)
+            if let Some(artist) = &now_playing.artist {
+                meta.insert(
+                    "xesam:artist".to_string(),
+                    zbus::zvariant::Value::new(vec![artist.clone()]).into(),
+                );
+            }
+
+            // Album
+            if let Some(album) = &now_playing.album {
+                meta.insert(
+                    "xesam:album".to_string(),
+                    zbus::zvariant::Value::new(album.clone()).into(),
+                );
+            }
+
+            // Duration (in microseconds)
+            if let Some(duration) = now_playing.duration {
+                meta.insert(
+                    "mpris:length".to_string(),
+                    zbus::zvariant::Value::new((duration * 1_000_000.0) as i64).into(),
+                );
+            }
+
+            // Album art URL
+            if let Some(id) = &now_playing.id {
+                // Try to find artwork file using the track ID
+                let artwork_filename = format!("{}.jpg", id);
+                let base_dirs = xdg::BaseDirectories::with_prefix("ethereal-waves");
+
+                if let Some(artwork_path) =
+                    base_dirs.find_cache_file(format!("artwork/{}", artwork_filename))
+                {
+                    if artwork_path.exists() {
+                        meta.insert(
+                            "mpris:artUrl".to_string(),
+                            zbus::zvariant::Value::new(format!(
+                                "file://{}",
+                                artwork_path.to_string_lossy()
+                            ))
+                            .into(),
+                        );
+                    }
+                }
+            }
+        }
+        state.metadata = meta;
+
+        // Drop the lock before spawning async task
+        drop(state);
+
+        // Emit PropertiesChanged signals
+        let conn = conn.clone();
+        tokio::spawn(async move {
+            // Get the interface reference
+            if let Ok(iface_ref) = conn
+                .object_server()
+                .interface::<_, MediaPlayer2Player>("/org/mpris/MediaPlayer2")
+                .await
+            {
+                // Get the signal context
+                let signal_ctx = iface_ref.signal_context();
+
+                // Emit property changed signals using the interface reference
+                // Note: These methods are generated by the #[zbus(property)] macro
+                let _ = iface_ref
+                    .get_mut()
+                    .await
+                    .playback_status_changed(&signal_ctx)
+                    .await;
+                let _ = iface_ref
+                    .get_mut()
+                    .await
+                    .metadata_changed(&signal_ctx)
+                    .await;
+                let _ = iface_ref.get_mut().await.shuffle_changed(&signal_ctx).await;
+                let _ = iface_ref
+                    .get_mut()
+                    .await
+                    .loop_status_changed(&signal_ctx)
+                    .await;
+                let _ = iface_ref.get_mut().await.volume_changed(&signal_ctx).await;
+            }
+        });
+    }
+
+    fn start_session_maybe(&mut self) {
+        if self.playback_service.session().is_none() {
+            if let Some(playlist_id) = self.view_playlist {
+                if let Ok(playlist) = self.playlist_service.get(playlist_id) {
+                    let start_index = if self.state.shuffle && !playlist.tracks().is_empty() {
+                        use rand::Rng;
+                        rand::rng().random_range(0..playlist.tracks().len())
+                    } else {
+                        0
+                    };
+
+                    self.playback_service
+                        .start_session(playlist, start_index, self.state.shuffle);
+                }
+            }
+        }
     }
 
     fn rebuild_nav_from_order(&mut self, items: Vec<NavPlaylistItem>, activate_id: u32) {
