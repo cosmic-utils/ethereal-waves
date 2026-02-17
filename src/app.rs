@@ -1012,7 +1012,8 @@ impl cosmic::Application for AppModel {
             }
 
             Message::Next => {
-                self.playback_service.next(self.state.repeat_mode.clone());
+                self.playback_service
+                    .next(self.state.repeat_mode.clone(), self.state.repeat);
             }
 
             Message::PlayPause => {
@@ -1139,11 +1140,13 @@ impl cosmic::Application for AppModel {
                 for event in events {
                     match event {
                         PlaybackEvent::TrackEnded => {
-                            self.playback_service.next(self.state.repeat_mode.clone());
+                            self.playback_service
+                                .next(self.state.repeat_mode.clone(), self.state.repeat);
                         }
                         PlaybackEvent::Error(err) => {
                             eprintln!("Playback error: {}", err);
-                            self.playback_service.next(self.state.repeat_mode.clone());
+                            self.playback_service
+                                .next(self.state.repeat_mode.clone(), self.state.repeat);
                         }
                         PlaybackEvent::PositionUpdate(_) => {
                             // Position already updated in service
@@ -1160,9 +1163,9 @@ impl cosmic::Application for AppModel {
                         MprisCommand::Pause => self.playback_service.pause(),
                         MprisCommand::PlayPause => self.playback_service.play_pause(),
                         MprisCommand::Stop => self.playback_service.stop(),
-                        MprisCommand::Next => {
-                            self.playback_service.next(self.state.repeat_mode.clone())
-                        }
+                        MprisCommand::Next => self
+                            .playback_service
+                            .next(self.state.repeat_mode.clone(), self.state.repeat),
                         MprisCommand::Previous => {
                             self.playback_service.prev(self.state.repeat_mode.clone())
                         }

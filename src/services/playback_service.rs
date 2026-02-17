@@ -257,7 +257,7 @@ impl PlaybackService {
 
     // ===== Navigation =====
 
-    pub fn next(&mut self, repeat_mode: RepeatMode) {
+    pub fn next(&mut self, repeat_mode: RepeatMode, repeat_enabled: bool) {
         let Some(session) = &mut self.state.session else {
             return;
         };
@@ -272,8 +272,13 @@ impl PlaybackService {
             RepeatMode::All => {
                 if session.index + 1 < session.order.len() {
                     session.index += 1;
-                } else {
+                } else if repeat_enabled {
+                    // Only wrap to beginning if repeat is enabled
                     session.index = 0;
+                } else {
+                    // Reached end without repeat - stop playback
+                    self.stop();
+                    return;
                 }
             }
         }
@@ -309,8 +314,6 @@ impl PlaybackService {
         self.play();
         self.update_now_playing();
     }
-
-    // ===== Tick Processing =====
 
     /// Process one tick cycle - handles GStreamer messages and MPRIS commands
     /// Returns events that the app should handle
