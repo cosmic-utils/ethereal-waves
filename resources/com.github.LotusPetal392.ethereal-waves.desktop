@@ -1,6 +1,8 @@
 [Desktop Entry]
 Name=Ethereal Waves
+Name[uk]=Лунохвиля
 Comment=Ethereal Waves
+Comment[uk]=Лунохвиля
 Type=Application
 Icon=com.github.LotusPetal392.ethereal-waves
 Exec=ethereal-waves %F
@@ -8,4 +10,5 @@ Terminal=false
 StartupNotify=true
 Categories=COSMIC;AudioVideo;Audio;Player;
 Keywords=COSMIC;AudioVideo;Audio;Player;
+Keywords[uk]=COSMIC;Космік;Звук;Аудіо;Музика;Програвач;
 MimeType=
