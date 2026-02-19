@@ -42,7 +42,7 @@ Non-exhaustive list of planned features in no particular order:
 - `Ctrl + ,`: Settings
 - `Ctrl + A`: Select All
 - `Ctrl + click`: Select
-- `Ctrl + Shift + click`: Select Range
+- `Shift + click`: Select Range
 
 ## Installation
 This project uses `just` for building. To run development mode:

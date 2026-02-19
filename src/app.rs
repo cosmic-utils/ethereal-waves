@@ -884,7 +884,7 @@ impl cosmic::Application for AppModel {
                     return Task::none();
                 };
 
-                if self.control_pressed > 0 && self.shift_pressed > 0 {
+                if self.shift_pressed > 0 {
                     // Ctrl + Shift + Click: select range
                     if let Some(last_id) = self.list_last_selected_id {
                         let _ = self
