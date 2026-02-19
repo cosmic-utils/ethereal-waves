@@ -6,6 +6,7 @@
   <name>Ethereal Waves</name>
   <name xml:lang="uk">Лунохвиля</name>
   <summary>Music player based on libcosmic</summary>
+  <summary xml:lang="cs">Hudební přehrávač postavený na libcosmic</summary>
   <summary xml:lang="uk">Музичний програвач на базі libcosmic</summary>
   <icon type="remote" width="64" height="64" scale="1">
     https://github.com/LotusPetal392/ethereal-waves/raw/main/resources/icons/hicolor/scalable/apps/icon.svg

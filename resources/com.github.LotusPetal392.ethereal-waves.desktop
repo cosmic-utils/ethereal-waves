@@ -10,5 +10,6 @@ Terminal=false
 StartupNotify=true
 Categories=COSMIC;AudioVideo;Audio;Player;
 Keywords=COSMIC;AudioVideo;Audio;Player;
+Keywords[cs]=COSMIC;Média;Zvuk;Audio;Přehrávač;
 Keywords[uk]=COSMIC;Космік;Звук;Аудіо;Музика;Програвач;
 MimeType=
