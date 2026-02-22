@@ -194,24 +194,28 @@ impl LibraryService {
             };
 
             for (file, track_metadata) in entries.iter_mut() {
-                // Check for cancellation before processing each file
                 if cancel_token.is_cancelled() {
                     log::info!("Library scan cancelled during metadata extraction");
                     let _ = progress_tx.send(LibraryProgress::Cancelled);
                     return;
                 }
 
-                // Extract metadata for this file
-                if let Err(e) = Self::extract_metadata(file, track_metadata, &xdg_dirs, &discoverer)
+                // Always count this file as processed (attempted)
+                update_progress += 1.0;
+
+                let ok = match Self::extract_metadata(file, track_metadata, &xdg_dirs, &discoverer)
                 {
-                    eprintln!("Failed to extract metadata from {:?}: {}", file, e);
-                    continue; // ← Changed from return
+                    Ok(_) => true,
+                    Err(e) => {
+                        eprintln!("Failed to extract metadata from {:?}: {}", file, e);
+                        false
+                    }
+                };
+
+                if ok {
+                    completed_entries.insert(file.clone(), track_metadata.clone());
                 }
 
-                completed_entries.insert(file.clone(), track_metadata.clone());
-
-                // Update progress
-                update_progress += 1.0;
                 let now = Instant::now();
 
                 if now.duration_since(last_progress_update) >= update_progress_interval {
@@ -219,17 +223,32 @@ impl LibraryService {
                     let _ = progress_tx.send(LibraryProgress::Progress {
                         current: update_progress,
                         total: update_total,
-                        percent: update_progress / update_total * 100.0,
+                        percent: if update_total > 0.0 {
+                            update_progress / update_total * 100.0
+                        } else {
+                            100.0
+                        },
                     });
                 }
 
-                // Send periodic library updates
                 if now.duration_since(last_library_update) >= update_library_interval {
                     last_library_update = now;
                     let _ =
                         progress_tx.send(LibraryProgress::PartialUpdate(completed_entries.clone()));
                 }
             }
+
+            // Ensure UI reaches 100% and finishes
+            let _ = progress_tx.send(LibraryProgress::Progress {
+                current: update_total,
+                total: update_total,
+                percent: 100.0,
+            });
+
+            let mut out = Library::new();
+            out.media = completed_entries;
+
+            let _ = progress_tx.send(LibraryProgress::Complete(out));
         });
     }
 
