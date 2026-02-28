@@ -189,6 +189,7 @@ impl LibraryService {
                 Some(discoverer) => discoverer,
                 None => {
                     eprintln!("Failed to create discoverer");
+                    let _ = progress_tx.send(LibraryProgress::Cancelled);
                     return;
                 }
             };

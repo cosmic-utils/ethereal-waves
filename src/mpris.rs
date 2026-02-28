@@ -192,7 +192,7 @@ impl MediaPlayer2 {
 
     #[zbus(property)]
     fn desktop_entry(&self) -> &str {
-        "com.github.LotusPetal392.ethereal-waves"
+        "com.galacticpirateradio.ethereal-waves"
     }
 
     #[zbus(property)]

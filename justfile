@@ -1,7 +1,7 @@
 # Name of the application's binary.
 name := 'ethereal-waves'
 # The unique ID of the application.
-appid := 'com.github.LotusPetal392.ethereal-waves'
+appid := 'com.galacticpirateradio.ethereal-waves'
 
 # Path to root file system, which defaults to `/`.
 rootdir := ''

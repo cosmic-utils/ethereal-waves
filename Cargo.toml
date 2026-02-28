@@ -67,11 +67,6 @@ rfd = ["libcosmic/rfd"]
 xdg-portal = ["libcosmic/xdg-portal"]
 single-instance = ["libcosmic/single-instance"]
 
-# Uncomment to test a locally-cloned libcosmic
-# [patch.'https://github.com/pop-os/libcosmic']
-# libcosmic = { path = "../libcosmic" }
-# cosmic-config = { path = "../libcosmic/cosmic-config" }
-# cosmic-theme = { path = "../libcosmic/cosmic-theme" }
 
 [profile.dev]
 opt-level = 1

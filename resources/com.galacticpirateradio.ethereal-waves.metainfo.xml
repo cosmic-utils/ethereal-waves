@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component type="desktop-application">
+    <id>com.galacticpirateradio.ethereal-waves</id>
+    <metadata_license>CC0-1.0</metadata_license>
+    <project_license>GPL-3.0</project_license>
+    <name>Ethereal Waves</name>
+    <name xml:lang="uk">Лунохвиля</name>
+    <developer>
+        <name>Natalie Rockot</name>
+    </developer>
+    <summary>Music player based on libcosmic</summary>
+    <summary xml:lang="cs">Hudební přehrávač postavený na libcosmic</summary>
+    <summary xml:lang="uk">Музичний програвач на базі libcosmic</summary>
+    <description>
+        <p>
+            Ethereal Waves is a music player based on libcosmic and gstreamer. It has a focus on simplicity and playing music stored on the local filesystem.
+        </p>
+    </description>
+    <icon type="stock">com.galacticpirateradio.ethereal-waves</icon>
+    <url type="homepage">https://galacticpirateradio.com/software</url>
+    <url type="vcs-browser">https://galacticpirateradio.com/software</url>
+    <url type="bugtracker">https://github.com/cosmic-utils/ethereal-waves/issues</url>
+    <releases>
+      <release version="0.1.2" date="2026-02-23">
+        <description>
+          <p>Flatpak update</p>
+        </description>
+      </release>
+    </releases>
+    <screenshots>
+        <screenshot type="default">
+            <caption>Light mode</caption>
+            <image>https://raw.githubusercontent.com/cosmic-utils/ethereal-waves/b970a4506b73b681b760d581c70f30d3a7eeed4b/screenshots/Ethereal%20Waves%20-%20Light%20Mode.png</image>
+        </screenshot>
+        <screenshot>
+            <caption>Dark mode</caption>
+            <image>https://raw.githubusercontent.com/cosmic-utils/ethereal-waves/b970a4506b73b681b760d581c70f30d3a7eeed4b/screenshots/Ethereal%20Waves%20-%20Dark%20Mode.png</image>
+        </screenshot>
+    </screenshots>
+    <launchable type="desktop-id">com.galacticpirateradio.ethereal-waves.desktop</launchable>
+    <provides>
+        <binary>ethereal-waves</binary>
+    </provides>
+    <requires>
+        <display_length compare="ge">360</display_length>
+    </requires>
+    <supports>
+        <control>keyboard</control>
+        <control>pointing</control>
+        <control>touch</control>
+    </supports>
+    <categories>
+        <category>COSMIC</category>
+        <category>AudioVideo</category>
+        <category>Audio</category>
+        <category>Player</category>
+    </categories>
+    <keywords>
+        <keyword>COSMIC</keyword>
+        <keyword>КОСМІК</keyword>
+    </keywords>
+    <content_rating type="oars-1.1" />
+</component>

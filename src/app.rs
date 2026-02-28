@@ -60,7 +60,7 @@ use xdg::BaseDirectories;
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 const APP_ICON: &[u8] = include_bytes!(
-    "../resources/icons/hicolor/scalable/apps/com.github.LotusPetal392.ethereal-waves.svg"
+    "../resources/icons/hicolor/scalable/apps/com.galacticpirateradio.ethereal-waves.svg"
 );
 
 pub type PlaylistId = u32;
@@ -188,7 +188,7 @@ pub enum Message {
 }
 
 /// Unique identifier in RDNN (reverse domain name notation) format.
-pub const APP_ID: &'static str = "com.github.LotusPetal392.ethereal-waves";
+pub const APP_ID: &'static str = "com.galacticpirateradio.ethereal-waves";
 
 /// Create a COSMIC application from the app model
 impl cosmic::Application for AppModel {
@@ -1755,7 +1755,7 @@ impl AppModel {
         if let Some(now_playing) = self.playback_service.now_playing() {
             // Track ID
             let track_id = format!(
-                "/com/github/LotusPetal392/etherealwaves/track/{}",
+                "/com/galacticpirateradio/etherealwaves/track/{}",
                 now_playing
                     .id
                     .clone()
