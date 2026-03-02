@@ -5,7 +5,7 @@
     <project_license>GPL-3.0</project_license>
     <name>Ethereal Waves</name>
     <name xml:lang="uk">Лунохвиля</name>
-    <developer>
+    <developer id="com.galacticpirateradio">
         <name>Natalie Rockot</name>
     </developer>
     <summary>Music player based on libcosmic</summary>
@@ -18,7 +18,7 @@
     </description>
     <icon type="stock">com.galacticpirateradio.ethereal-waves</icon>
     <url type="homepage">https://galacticpirateradio.com/software</url>
-    <url type="vcs-browser">https://galacticpirateradio.com/software</url>
+    <url type="vcs-browser">https://github.com/cosmic-utils/ethereal-waves</url>
     <url type="bugtracker">https://github.com/cosmic-utils/ethereal-waves/issues</url>
     <releases>
       <release version="0.1.2" date="2026-02-23">

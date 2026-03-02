@@ -1,8 +1,8 @@
 [Desktop Entry]
 Name=Ethereal Waves
 Name[uk]=Лунохвиля
-Comment=Ethereal Waves
-Comment[uk]=Лунохвиля
+Comment=Music player based on libcosmic
+Comment[uk]=Музичний програвач на базі libcosmic
 Type=Application
 Icon=com.galacticpirateradio.ethereal-waves
 Exec=ethereal-waves %F
@@ -12,4 +12,3 @@ Categories=COSMIC;AudioVideo;Audio;Player;
 Keywords=COSMIC;AudioVideo;Audio;Player;
 Keywords[cs]=COSMIC;Média;Zvuk;Audio;Přehrávač;
 Keywords[uk]=COSMIC;Космік;Звук;Аудіо;Музика;Програвач;
-MimeType=

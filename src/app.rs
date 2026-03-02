@@ -1174,7 +1174,7 @@ impl cosmic::Application for AppModel {
                 // Handle MPRIS commands
                 let commands = self.playback_service.process_mpris_commands();
                 for cmd in commands {
-                    println!("mpris message: {:?}", cmd);
+                    //println!("mpris message: {:?}", cmd);
                     match cmd {
                         MprisCommand::Play => {
                             self.start_session_maybe();

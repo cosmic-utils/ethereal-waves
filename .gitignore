@@ -22,3 +22,8 @@ target
 
 Thumbs.db
 .DS_Store
+
+# Local Flatpak build artifacts
+build-dir/
+.flatpak-cargo-cache/
+.flatpak-cargo-home/

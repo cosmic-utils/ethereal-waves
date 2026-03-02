@@ -79,7 +79,7 @@ impl LibraryService {
     pub fn load(&self) -> Result<Library, LibraryError> {
         let mut media: HashMap<PathBuf, MediaMetaData> = self
             .xdg_dirs
-            .get_data_file(LIBRARY_FILENAME)
+            .find_data_file(LIBRARY_FILENAME)
             .map(|path| {
                 let content = fs::read_to_string(path)?;
                 Ok::<_, LibraryError>(serde_json::from_str(&content)?)
