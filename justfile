@@ -75,39 +75,3 @@ install:
 uninstall:
     rm {{ bin-dst }} {{ desktop-dst }} {{ icon-svg-dst / icon-svg }}
 
-# Vendor dependencies locally
-vendor:
-    mkdir -p .cargo
-    cargo vendor | head -n -1 > .cargo/config.toml
-    echo 'directory = "vendor"' >> .cargo/config.toml
-    tar pcf vendor.tar vendor
-    rm -rf vendor
-
-# Extracts vendored dependencies
-vendor-extract:
-    rm -rf vendor
-    tar pxf vendor.tar
-
-# Regenerate flatpak cargo sources
-flatpak-sources:
-    mkdir -p .flatpak-cargo-cache .flatpak-cargo-home
-    XDG_CACHE_HOME={{invocation_directory() / '.flatpak-cargo-cache'}} HOME={{invocation_directory() / '.flatpak-cargo-home'}} flatpak-cargo-generator Cargo.lock -o cargo-sources.json
-
-# Build the flatpak using local manifest
-flatpak-build:
-    flatpak-builder --user --install-deps-from=flathub --force-clean build-dir com.galacticpirateradio.ethereal-waves.yml
-
-# Run the app from local flatpak build dir
-flatpak-run:
-    if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -z "${DISPLAY:-}" ]; then echo "No graphical display detected. Run this from a desktop session terminal."; exit 1; fi
-    flatpak-builder --run --socket=wayland --socket=fallback-x11 --socket=pulseaudio --share=ipc --device=dri --filesystem=xdg-data/fonts:ro --filesystem=~/.fonts:ro --filesystem=xdg-config/fontconfig:ro --env=WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-} --env=WAYLAND_SOCKET=${WAYLAND_SOCKET:-} --env=DISPLAY=${DISPLAY:-} build-dir com.galacticpirateradio.ethereal-waves.yml ethereal-waves
-
-# Bump cargo version, create git commit, and create tag
-tag version:
-    find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "{{ version }}"/' '{}' \; -exec git add '{}' \;
-    cargo check
-    cargo clean
-    git add Cargo.lock
-    git commit -m 'release: {{ version }}'
-    git commit --amend
-    git tag -a {{ version }} -m ''
