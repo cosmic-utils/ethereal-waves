@@ -46,9 +46,6 @@ build-debug *args:
 # Compiles with release profile
 build-release *args: (build-debug '--release' args)
 
-# Compiles release profile with vendored dependencies
-build-vendored *args: vendor-extract (build-release '--frozen --offline' args)
-
 # Runs a clippy check
 check *args:
     cargo clippy --all-features {{ args }} -- -W clippy::pedantic
@@ -74,4 +71,3 @@ install:
 # Uninstalls installed files
 uninstall:
     rm {{ bin-dst }} {{ desktop-dst }} {{ icon-svg-dst / icon-svg }}
-
