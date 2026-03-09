@@ -190,7 +190,8 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
         let row_button = widget::button::custom(row_element)
             .class(button_style(track.1.selected, false))
             .on_press_down(Message::ChangeTrack(id.clone(), track.0))
-            .padding(0);
+            .padding(0)
+            .width(Length::Fill);
 
         let row_mouse = widget::mouse_area(row_button).on_release(Message::ListSelectRow(track.0));
 
