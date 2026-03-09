@@ -1,103 +1,41 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use crate::app::{AppModel, MenuAction, Message};
-use crate::constants::MENU_CONDENSED_THRESHOLD;
+use crate::constants::MENU_WIDGET_ID;
 use crate::fl;
 use crate::playback_state::RepeatMode;
+use cosmic::Application;
 use cosmic::{
-    Apply, Element,
-    iced::Length,
-    widget::{self, menu},
+    Element,
+    widget::{
+        menu::{self, ItemHeight, ItemWidth},
+        responsive_menu_bar,
+    },
 };
+use std::sync::LazyLock;
+
+static MENU_ID: LazyLock<cosmic::widget::Id> =
+    LazyLock::new(|| cosmic::widget::Id::new(MENU_WIDGET_ID));
 
 pub fn menu_bar<'a>(app: &AppModel) -> Element<'a, Message> {
-    let is_condensed = app.state.window_width < MENU_CONDENSED_THRESHOLD;
+    let selected_playlist = app
+        .view_playlist
+        .and_then(|id| app.playlist_service.get(id).ok());
+    let has_playlist = selected_playlist.is_some();
+    let selected_playlist_is_library = selected_playlist
+        .as_ref()
+        .is_some_and(|playlist| playlist.is_library());
 
-    let has_playlist = app.view_playlist.is_some();
+    let selected_count = selected_playlist
+        .as_ref()
+        .map(|playlist| playlist.selected_iter().count())
+        .unwrap_or(0);
 
-    let repeat_one = if app.state.repeat_mode == RepeatMode::One {
-        true
-    } else {
-        false
-    };
-
-    let repeat_all = if app.state.repeat_mode == RepeatMode::All {
-        true
-    } else {
-        false
-    };
-
-    let file_items = vec![menu::Item::Button(fl!("quit"), None, MenuAction::Quit)];
-
-    let selected_playlist = match app.view_playlist {
-        Some(id) => match app.playlist_service.get(id) {
-            Ok(playlist) => playlist,
-            Err(_) => {
-                // If we can't get the playlist, return a minimal menu
-                return if is_condensed {
-                    build_menu(
-                        vec![menu::Tree::with_children(
-                            menu::menu_button(vec![
-                                widget::icon::from_name("open-menu-symbolic").apply(Element::from),
-                            ])
-                            .apply(Element::from),
-                            menu::items(
-                                &app.key_binds,
-                                vec![menu::Item::Folder(fl!("file"), file_items)],
-                            ),
-                        )],
-                        Length::Shrink,
-                    )
-                } else {
-                    build_menu(
-                        vec![menu::Tree::with_children(
-                            menu::root(fl!("file")).apply(Element::from),
-                            menu::items(&app.key_binds, file_items),
-                        )],
-                        Length::Fill,
-                    )
-                };
-            }
-        },
-        None => {
-            // If we can't get the playlist, return a minimal menu
-            return if is_condensed {
-                build_menu(
-                    vec![menu::Tree::with_children(
-                        menu::menu_button(vec![
-                            widget::icon::from_name("open-menu-symbolic").apply(Element::from),
-                        ])
-                        .apply(Element::from),
-                        menu::items(
-                            &app.key_binds,
-                            vec![menu::Item::Folder(fl!("file"), file_items)],
-                        ),
-                    )],
-                    Length::Shrink,
-                )
-            } else {
-                build_menu(
-                    vec![menu::Tree::with_children(
-                        menu::root(fl!("file")).apply(Element::from),
-                        menu::items(&app.key_binds, file_items),
-                    )],
-                    Length::Fill,
-                )
-            };
-        }
-    };
+    let repeat_one = app.state.repeat_mode == RepeatMode::One;
+    let repeat_all = app.state.repeat_mode == RepeatMode::All;
 
     let mut selected_playlist_list = Vec::new();
     let mut now_playing_playlist_list = Vec::new();
-
-    let selected_count: usize = if app.view_playlist.is_some() {
-        app.playlist_service
-            .get(app.view_playlist.unwrap())
-            .map(|p| p.selected_iter().count())
-            .unwrap_or(0)
-    } else {
-        0
-    };
 
     // Add ordered playlists
     app.state.playlist_nav_order.iter().for_each(|p| {
@@ -156,19 +94,19 @@ pub fn menu_bar<'a>(app: &AppModel) -> Element<'a, Message> {
         menu_button_optional(
             fl!("rename-playlist-menu"),
             MenuAction::RenamePlaylist,
-            !selected_playlist.is_library(),
+            has_playlist && !selected_playlist_is_library,
         ),
         menu_button_optional(
             fl!("delete-playlist-menu"),
             MenuAction::DeletePlaylist,
-            !selected_playlist.is_library(),
+            has_playlist && !selected_playlist_is_library,
         ),
         menu::Item::Divider,
         menu::Item::Folder(fl!("add-selected-to"), selected_playlist_list),
         menu_button_optional(
             fl!("remove-selected"),
             MenuAction::RemoveSelectedFromPlaylist,
-            has_playlist && !selected_playlist.is_library(),
+            has_playlist && !selected_playlist_is_library,
         ),
         menu::Item::Divider,
         menu::Item::Folder(fl!("add-now-playing-to"), now_playing_playlist_list),
@@ -216,57 +154,22 @@ pub fn menu_bar<'a>(app: &AppModel) -> Element<'a, Message> {
         menu::Item::Button(fl!("about-ethereal-waves"), None, MenuAction::About),
     ];
 
-    if is_condensed {
-        return build_menu(
-            vec![menu::Tree::with_children(
-                menu::menu_button(vec![
-                    widget::icon::from_name("open-menu-symbolic").apply(Element::from),
-                ])
-                .apply(Element::from),
-                menu::items(
-                    &app.key_binds,
-                    vec![
-                        menu::Item::Folder(fl!("file"), file_items),
-                        menu::Item::Folder(fl!("playlist"), playlist_items),
-                        menu::Item::Folder(fl!("playback"), playback_items),
-                        menu::Item::Folder(fl!("view"), view_items),
-                    ],
-                ),
-            )],
-            Length::Shrink,
-        );
-    }
-
-    build_menu(
-        vec![
-            menu::Tree::with_children(
-                menu::root(fl!("file")).apply(Element::from),
-                menu::items(&app.key_binds, file_items),
-            ),
-            menu::Tree::with_children(
-                menu::root(fl!("playlist")).apply(Element::from),
-                menu::items(&app.key_binds, playlist_items),
-            ),
-            menu::Tree::with_children(
-                menu::root(fl!("playback")).apply(Element::from),
-                menu::items(&app.key_binds, playback_items),
-            ),
-            menu::Tree::with_children(
-                menu::root(fl!("view")).apply(Element::from),
-                menu::items(&app.key_binds, view_items),
-            ),
-        ],
-        Length::Fill,
-    )
-}
-
-fn build_menu<'a>(roots: Vec<menu::Tree<Message>>, width: Length) -> Element<'a, Message> {
-    menu::bar(roots)
-        .item_width(menu::ItemWidth::Uniform(250))
-        .item_height(menu::ItemHeight::Dynamic(40))
+    responsive_menu_bar()
+        .item_height(ItemHeight::Dynamic(40))
+        .item_width(ItemWidth::Uniform(250))
         .spacing(1.0)
-        .width(width)
-        .into()
+        .into_element(
+            app.core(),
+            &app.key_binds,
+            MENU_ID.clone(),
+            Message::Surface,
+            vec![
+                (fl!("file"), file_items),
+                (fl!("playlist"), playlist_items),
+                (fl!("playback"), playback_items),
+                (fl!("view"), view_items),
+            ],
+        )
 }
 
 const fn menu_button_optional(

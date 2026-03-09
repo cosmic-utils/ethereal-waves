@@ -34,7 +34,7 @@ use cosmic::{
     },
     iced_core::text::Wrapping,
     iced_widget::scrollable::{self, AbsoluteOffset},
-    theme,
+    surface, theme,
     widget::{
         self, Column,
         about::About,
@@ -173,6 +173,7 @@ pub enum Message {
     SelectedPaths(Vec<String>),
     SetVolume(i32),
     SliderSeek(f32),
+    Surface(surface::Action),
     Tick,
     ToggleContextPage(ContextPage),
     ToggleListRowAlignTop(bool),
@@ -1165,6 +1166,12 @@ impl cosmic::Application for AppModel {
             Message::SliderSeek(time) => {
                 self.playback_service.set_dragging_slider(true);
                 self.playback_service.set_progress(time);
+            }
+
+            Message::Surface(action) => {
+                return cosmic::task::message(cosmic::Action::Cosmic(
+                    cosmic::app::Action::Surface(action),
+                ));
             }
 
             Message::Tick => {
