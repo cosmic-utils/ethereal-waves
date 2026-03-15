@@ -47,6 +47,8 @@ one-track-selected = 1 track selected
 tracks-selected = tracks selected
 alphabetical = Alphabetical
 title-sort = Title Sort
+track-number-short = Trk
+show-track-number-column = Show Track Number Column
 
 previous = Previous
 play = Play

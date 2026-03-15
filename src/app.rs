@@ -182,6 +182,7 @@ pub enum Message {
     ToggleListAlbumColumn(bool),
     ToggleListRowAlignTop(bool),
     ToggleListTextWrap(bool),
+    ToggleListTrackNumberColumn(bool),
     ToggleMute,
     ToggleRepeat,
     ToggleRepeatMode,
@@ -1328,6 +1329,10 @@ impl cosmic::Application for AppModel {
                 config_set!(list_row_align_top, list_row_align_top);
             }
 
+            Message::ToggleListTrackNumberColumn(list_show_track_number_column) => {
+                config_set!(list_show_track_number_column, list_show_track_number_column);
+            }
+
             Message::ToggleMute => {
                 let muted = !self.state.muted;
                 if muted {
@@ -1632,6 +1637,12 @@ impl AppModel {
                     settings::item::builder(fl!("align-rows-top")).control(
                         toggler(self.config.list_row_align_top)
                             .on_toggle(Message::ToggleListRowAlignTop),
+                    )
+                })
+                .add({
+                    settings::item::builder(fl!("show-track-number-column")).control(
+                        toggler(self.config.list_show_track_number_column)
+                            .on_toggle(Message::ToggleListTrackNumberColumn),
                     )
                 })
                 .add({

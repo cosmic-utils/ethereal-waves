@@ -23,8 +23,23 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
     };
 
     let mut content = widget::column();
+    let show_track_number_column = app.config.list_show_track_number_column;
     let show_album_column = app.config.list_show_album_column;
     let show_album_artist_column = app.config.list_show_album_artist_column;
+
+    let track_number_label = fl!("track-number-short");
+    let max_track_number_chars = view_model
+        .visible_tracks
+        .iter()
+        .filter_map(|(_, track)| track.metadata.track_number)
+        .max()
+        .map(|track_number| track_number.to_string().len())
+        .unwrap_or(0);
+    let track_number_column_width = max_track_number_chars
+        .max(track_number_label.chars().count())
+        .max(2) as f32
+        * 11.0
+        + 8.0;
 
     // Header row
     let mut header_row = widget::row()
@@ -35,14 +50,23 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
             widget::text::heading("#")
                 .align_x(Alignment::End)
                 .width(Length::Fixed(view_model.number_column_width)),
-        )
-        .push(create_sort_button(
-            fl!("title"),
-            SortBy::Title,
-            &app.state,
-            &view_model.sort_direction_icon,
-            space_xxs,
-        ));
+        );
+
+    if show_track_number_column {
+        header_row = header_row.push(
+            widget::text::heading(track_number_label)
+                .align_x(Alignment::End)
+                .width(Length::Fixed(track_number_column_width)),
+        );
+    }
+
+    header_row = header_row.push(create_sort_button(
+        fl!("title"),
+        SortBy::Title,
+        &app.state,
+        &view_model.sort_direction_icon,
+        space_xxs,
+    ));
 
     if show_album_column {
         header_row = header_row.push(create_sort_button(
@@ -149,7 +173,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
             }
         }
 
-        // Track number
+        // Row number
         row_element = row_element.push(
             widget::container(
                 widget::text(count.to_string())
@@ -160,6 +184,27 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
             )
             .clip(true),
         );
+
+        if show_track_number_column {
+            // Track number metadata
+            row_element = row_element.push(
+                widget::container(
+                    widget::text(
+                        track
+                            .1
+                            .metadata
+                            .track_number
+                            .map(|track_number| track_number.to_string())
+                            .unwrap_or_default(),
+                    )
+                    .width(Length::Fixed(track_number_column_width))
+                    .align_x(Alignment::End)
+                    .align_y(view_model.row_align)
+                    .height(view_model.row_height),
+                )
+                .clip(true),
+            );
+        }
 
         // Title and other columns
         row_element = row_element.push(
