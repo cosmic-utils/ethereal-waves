@@ -43,6 +43,8 @@ pub struct Config {
     pub library_paths: HashSet<String>,
     pub list_text_wrap: bool,
     pub list_row_align_top: bool,
+    pub list_show_album_column: bool,
+    pub list_show_album_artist_column: bool,
     pub title_sort: TitleSortMode,
 }
 
@@ -74,6 +76,8 @@ impl Default for Config {
             library_paths: HashSet::new(),
             list_text_wrap: true,
             list_row_align_top: false,
+            list_show_album_column: true,
+            list_show_album_artist_column: false,
             title_sort: TitleSortMode::Alphabetical,
         }
     }

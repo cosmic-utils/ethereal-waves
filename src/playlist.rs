@@ -92,6 +92,13 @@ impl Playlist {
                     .cmp(&b.metadata.album)
                     .then_with(|| compare_title(a, b, title_sort)),
 
+                SortBy::AlbumArtist => a
+                    .metadata
+                    .album_artist
+                    .cmp(&b.metadata.album_artist)
+                    .then(a.metadata.album.cmp(&b.metadata.album))
+                    .then_with(|| compare_title(a, b, title_sort)),
+
                 SortBy::Title => a.metadata.title.cmp(&b.metadata.title),
             };
 

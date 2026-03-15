@@ -23,41 +23,56 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
     };
 
     let mut content = widget::column();
+    let show_album_column = app.config.list_show_album_column;
+    let show_album_artist_column = app.config.list_show_album_artist_column;
 
     // Header row
-    content = content.push(
-        widget::row()
-            .spacing(space_xxs)
-            .push(widget::space::horizontal().width(space_xxxs))
-            .push(widget::space::horizontal().width(Length::Fixed(view_model.icon_column_width)))
-            .push(
-                widget::text::heading("#")
-                    .align_x(Alignment::End)
-                    .width(Length::Fixed(view_model.number_column_width)),
-            )
-            .push(create_sort_button(
-                fl!("title"),
-                SortBy::Title,
-                &app.state,
-                &view_model.sort_direction_icon,
-                space_xxs,
-            ))
-            .push(create_sort_button(
-                fl!("album"),
-                SortBy::Album,
-                &app.state,
-                &view_model.sort_direction_icon,
-                space_xxs,
-            ))
-            .push(create_sort_button(
-                fl!("artist"),
-                SortBy::Artist,
-                &app.state,
-                &view_model.sort_direction_icon,
-                space_xxs,
-            ))
-            .push(widget::space::horizontal().width(space_xxs)),
-    );
+    let mut header_row = widget::row()
+        .spacing(space_xxs)
+        .push(widget::space::horizontal().width(space_xxxs))
+        .push(widget::space::horizontal().width(Length::Fixed(view_model.icon_column_width)))
+        .push(
+            widget::text::heading("#")
+                .align_x(Alignment::End)
+                .width(Length::Fixed(view_model.number_column_width)),
+        )
+        .push(create_sort_button(
+            fl!("title"),
+            SortBy::Title,
+            &app.state,
+            &view_model.sort_direction_icon,
+            space_xxs,
+        ));
+
+    if show_album_column {
+        header_row = header_row.push(create_sort_button(
+            fl!("album"),
+            SortBy::Album,
+            &app.state,
+            &view_model.sort_direction_icon,
+            space_xxs,
+        ));
+    }
+
+    header_row = header_row.push(create_sort_button(
+        fl!("artist"),
+        SortBy::Artist,
+        &app.state,
+        &view_model.sort_direction_icon,
+        space_xxs,
+    ));
+
+    if show_album_artist_column {
+        header_row = header_row.push(create_sort_button(
+            fl!("album-artist"),
+            SortBy::AlbumArtist,
+            &app.state,
+            &view_model.sort_direction_icon,
+            space_xxs,
+        ));
+    }
+
+    content = content.push(header_row.push(widget::space::horizontal().width(space_xxs)));
     content = content.push(widget::divider::horizontal::default());
 
     // Build rows
@@ -146,26 +161,27 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
             .clip(true),
         );
 
-        // Title, Album, Artist columns
-        row_element = row_element
-            .push(
-                widget::container(
-                    widget::text(
-                        track
-                            .1
-                            .metadata
-                            .title
-                            .clone()
-                            .unwrap_or_else(|| track.1.path.to_string_lossy().to_string()),
-                    )
-                    .align_y(view_model.row_align)
-                    .height(view_model.row_height)
-                    .wrapping(view_model.wrapping)
-                    .width(Length::FillPortion(1)),
+        // Title and other columns
+        row_element = row_element.push(
+            widget::container(
+                widget::text(
+                    track
+                        .1
+                        .metadata
+                        .title
+                        .clone()
+                        .unwrap_or_else(|| track.1.path.to_string_lossy().to_string()),
                 )
-                .clip(true),
+                .align_y(view_model.row_align)
+                .height(view_model.row_height)
+                .wrapping(view_model.wrapping)
+                .width(Length::FillPortion(1)),
             )
-            .push(
+            .clip(true),
+        );
+
+        if show_album_column {
+            row_element = row_element.push(
                 widget::container(
                     widget::text(track.1.metadata.album.clone().unwrap_or_default())
                         .align_y(view_model.row_align)
@@ -174,18 +190,34 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
                         .width(Length::FillPortion(1)),
                 )
                 .clip(true),
+            );
+        }
+
+        row_element = row_element.push(
+            widget::container(
+                widget::text(track.1.metadata.artist.clone().unwrap_or_default())
+                    .align_y(view_model.row_align)
+                    .height(view_model.row_height)
+                    .wrapping(view_model.wrapping)
+                    .width(Length::FillPortion(1)),
             )
-            .push(
+            .clip(true),
+        );
+
+        if show_album_artist_column {
+            row_element = row_element.push(
                 widget::container(
-                    widget::text(track.1.metadata.artist.clone().unwrap_or_default())
+                    widget::text(track.1.metadata.album_artist.clone().unwrap_or_default())
                         .align_y(view_model.row_align)
                         .height(view_model.row_height)
                         .wrapping(view_model.wrapping)
                         .width(Length::FillPortion(1)),
                 )
                 .clip(true),
-            )
-            .width(Length::Fill);
+            );
+        }
+
+        row_element = row_element.width(Length::Fill);
 
         let row_button = widget::button::custom(row_element)
             .class(button_style(track.1.selected, false))

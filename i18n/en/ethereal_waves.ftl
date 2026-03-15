@@ -74,6 +74,8 @@ appearance = Appearance
 theme = Theme
 add-location = Add Location
 align-rows-top = Align Rows To The Top
+show-album-column = Show Album Column
+show-album-artist-column = Show Album Artist Column
 
 number = #
 title = Title

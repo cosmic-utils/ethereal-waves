@@ -178,6 +178,8 @@ pub enum Message {
     Tick,
     TitleSort(TitleSortMode),
     ToggleContextPage(ContextPage),
+    ToggleListAlbumArtistColumn(bool),
+    ToggleListAlbumColumn(bool),
     ToggleListRowAlignTop(bool),
     ToggleListTextWrap(bool),
     ToggleMute,
@@ -1314,6 +1316,14 @@ impl cosmic::Application for AppModel {
                 config_set!(list_text_wrap, list_text_wrap);
             }
 
+            Message::ToggleListAlbumColumn(list_show_album_column) => {
+                config_set!(list_show_album_column, list_show_album_column);
+            }
+
+            Message::ToggleListAlbumArtistColumn(list_show_album_artist_column) => {
+                config_set!(list_show_album_artist_column, list_show_album_artist_column);
+            }
+
             Message::ToggleListRowAlignTop(list_row_align_top) => {
                 config_set!(list_row_align_top, list_row_align_top);
             }
@@ -1622,6 +1632,18 @@ impl AppModel {
                     settings::item::builder(fl!("align-rows-top")).control(
                         toggler(self.config.list_row_align_top)
                             .on_toggle(Message::ToggleListRowAlignTop),
+                    )
+                })
+                .add({
+                    settings::item::builder(fl!("show-album-column")).control(
+                        toggler(self.config.list_show_album_column)
+                            .on_toggle(Message::ToggleListAlbumColumn),
+                    )
+                })
+                .add({
+                    settings::item::builder(fl!("show-album-artist-column")).control(
+                        toggler(self.config.list_show_album_artist_column)
+                            .on_toggle(Message::ToggleListAlbumArtistColumn),
                     )
                 })
                 .into(),
@@ -2103,6 +2125,7 @@ impl AppModel {
                         t.metadata.title.as_deref(),
                         t.metadata.album.as_deref(),
                         t.metadata.artist.as_deref(),
+                        t.metadata.album_artist.as_deref(),
                     ]
                     .into_iter()
                     .flatten()
@@ -2471,6 +2494,7 @@ impl DialogPages {
 pub enum SortBy {
     Artist,
     Album,
+    AlbumArtist,
     Title,
 }
 
