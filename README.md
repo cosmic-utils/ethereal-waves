@@ -26,7 +26,7 @@ Non-exhaustive list of planned features in no particular order:
 - [x] Condensed responsive layout (it's possible the list view may be made responsive later)
 - [ ] More keyboard shortcuts
 - [x] Drag and drop support (your milage may vary outside of cosmic-comp)
-- [ ] Playlist duplicate management
+- [x] Playlist duplicate management
 - [ ] Partial update (Only add new tracks)
 
 ## Keybindings

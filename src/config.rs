@@ -19,6 +19,13 @@ pub enum TitleSortMode {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum PlaylistDuplicatePolicy {
+    Allow,
+    Disallow,
+    Ask,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum AppTheme {
     Dark,
     Light,
@@ -47,6 +54,7 @@ pub struct Config {
     pub list_show_album_column: bool,
     pub list_show_album_artist_column: bool,
     pub title_sort: TitleSortMode,
+    pub playlist_duplicate_policy: PlaylistDuplicatePolicy,
 }
 
 impl Config {
@@ -81,6 +89,7 @@ impl Default for Config {
             list_show_album_column: true,
             list_show_album_artist_column: false,
             title_sort: TitleSortMode::Alphabetical,
+            playlist_duplicate_policy: PlaylistDuplicatePolicy::Allow,
         }
     }
 }

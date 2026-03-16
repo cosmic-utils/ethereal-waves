@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
 
-use crate::config::{AppTheme, CONFIG_VERSION, Config, State, TitleSortMode};
+use crate::config::{
+    AppTheme, CONFIG_VERSION, Config, PlaylistDuplicatePolicy, State, TitleSortMode,
+};
 use crate::constants::*;
 use crate::fl;
 use crate::helpers::*;
@@ -85,6 +87,8 @@ pub struct AppModel {
     /// Settings page / app theme dropdown labels
     app_theme_labels: Vec<String>,
     title_sort_labels: Vec<String>,
+    playlist_duplicate_policy_lables: Vec<String>,
+
     pub is_condensed: bool,
 
     config_handler: Option<cosmic_config::Config>,
@@ -156,11 +160,13 @@ pub enum Message {
     ListViewSort(SortBy),
     MoveNavDown,
     MoveNavUp,
-    NavDrop(nav_bar::Id),
+    NavDrop(nav_bar::Id, TrackDropData),
     NewPlaylist,
     Next,
     Noop,
     PlayPause,
+    PlaylistDuplicateDialogAction(PlaylistDuplicateDialogAction),
+    PlaylistDuplicatePolicy(PlaylistDuplicatePolicy),
     Previous,
     Quit,
     ReleaseSlider,
@@ -294,6 +300,7 @@ impl cosmic::Application for AppModel {
                 .unwrap_or_default(),
             app_theme_labels: vec![fl!("match-desktop"), fl!("dark"), fl!("light")],
             title_sort_labels: vec![fl!("alphabetical"), fl!("track-number")],
+            playlist_duplicate_policy_lables: vec![fl!("allow"), fl!("disallow"), fl!("ask")],
             is_condensed: false,
             config_handler: _flags.config_handler,
             state_handler: _flags.state_handler,
@@ -425,6 +432,7 @@ impl cosmic::Application for AppModel {
 
     fn dialog(&self) -> Option<Element<'_, Self::Message>> {
         let dialog_page = self.dialog_pages.front()?;
+        let cosmic_theme::Spacing { space_xxs, .. } = theme::active().cosmic().spacing;
 
         let dialog = match dialog_page {
             DialogPage::NewPlaylist(name) => {
@@ -529,6 +537,51 @@ impl cosmic::Application for AppModel {
                     .secondary_action(
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
                     );
+
+                dialog
+            }
+
+            DialogPage::ConfirmPlaylistDuplicate {
+                destination_id,
+                tracks,
+            } => {
+                let track = tracks.front().unwrap();
+                let destination_name = self
+                    .playlist_service
+                    .get(*destination_id)
+                    .map(|playlist| playlist.name().to_string())
+                    .unwrap_or_else(|_| fl!("playlist"));
+
+                let dialog = widget::dialog()
+                    .title(fl!("playlist-duplicate"))
+                    .icon(widget::icon::from_name("dialog-question").size(64))
+                    .tertiary_action(
+                        widget::row()
+                            .spacing(space_xxs)
+                            .push(widget::button::standard(fl!("yes-to-all")).on_press(
+                                Message::PlaylistDuplicateDialogAction(
+                                    PlaylistDuplicateDialogAction::YesToAll,
+                                ),
+                            ))
+                            .push(widget::button::standard(fl!("no-to-all")).on_press(
+                                Message::PlaylistDuplicateDialogAction(
+                                    PlaylistDuplicateDialogAction::NoToAll,
+                                ),
+                            )),
+                    )
+                    .secondary_action(widget::button::standard(fl!("skip")).on_press(
+                        Message::PlaylistDuplicateDialogAction(PlaylistDuplicateDialogAction::Skip),
+                    ))
+                    .primary_action(widget::button::suggested(fl!("add")).on_press(
+                        Message::PlaylistDuplicateDialogAction(PlaylistDuplicateDialogAction::Add),
+                    ))
+                    .control(widget::column::with_children(vec![
+                        track_info_row(fl!("playlist"), destination_name).into(),
+                        track_info_row(fl!("file"), Self::duplicate_track_display_name(track))
+                            .into(),
+                        widget::text(track.path.display().to_string()).into(),
+                        widget::text(fl!("add-duplicate-anyway")).into(),
+                    ]));
 
                 dialog
             }
@@ -686,12 +739,7 @@ impl cosmic::Application for AppModel {
                     Err(_) => return Task::none(),
                 };
 
-                if let Err(err) = self
-                    .playlist_service
-                    .add_tracks(destination_id, selected_tracks)
-                {
-                    eprintln!("Error adding tracks: {}", err);
-                }
+                self.add_tracks_to_playlist_with_duplicate_policy(destination_id, selected_tracks);
             }
 
             Message::AddNowPlayingToPlaylist(destination_id) => {
@@ -706,12 +754,10 @@ impl cosmic::Application for AppModel {
                             ..Default::default()
                         };
 
-                        if let Err(err) = self
-                            .playlist_service
-                            .add_tracks(destination_id, vec![track])
-                        {
-                            eprintln!("Error adding now playing to playlist: {}", err);
-                        }
+                        self.add_tracks_to_playlist_with_duplicate_policy(
+                            destination_id,
+                            vec![track],
+                        );
                     }
                 }
             }
@@ -829,6 +875,8 @@ impl cosmic::Application for AppModel {
                                 },
                             );
                         }
+
+                        DialogPage::ConfirmPlaylistDuplicate { .. } => {}
                     };
                 };
             }
@@ -1037,20 +1085,52 @@ impl cosmic::Application for AppModel {
                 state_set!(playlist_nav_order, order);
             }
 
-            Message::NavDrop(entity) => {
-                match self.nav.data(entity) {
-                    // If dropped onto a playlist, add selected tracks to it
-                    Some(Page::Playlist(playlist_id)) => {
-                        return self.update(Message::AddSelectedToPlaylist(*playlist_id));
-                    }
-                    // If dropped onto something else, do nothing
-                    _ => {}
-                }
+            Message::NavDrop(entity, data) => {
+                let Some(Page::Playlist(destination_id)) = self.nav.data(entity) else {
+                    return Task::none();
+                };
+
+                let source_id = match self.view_playlist {
+                    Some(id) => id,
+                    None => return Task::none(),
+                };
+
+                let source_tracks = match self.playlist_service.get(source_id) {
+                    Ok(playlist) => playlist
+                        .tracks()
+                        .iter()
+                        .filter_map(|t| t.metadata.id.clone().map(|id| (id, t.clone())))
+                        .collect::<HashMap<String, Track>>(),
+                    Err(_) => return Task::none(),
+                };
+
+                let dragged_tracks: Vec<Track> = data
+                    .track_ids
+                    .into_iter()
+                    .filter_map(|id| source_tracks.get(&id).cloned())
+                    .map(|mut track| {
+                        track.selected = false;
+                        track.generate_entry_id();
+                        track.update_date_added();
+                        track
+                    })
+                    .collect();
+
+                self.add_tracks_to_playlist_with_duplicate_policy(*destination_id, dragged_tracks);
             }
 
             Message::Next => {
                 self.playback_service
                     .next(self.state.repeat_mode.clone(), self.state.repeat);
+            }
+
+            Message::PlaylistDuplicatePolicy(playlist_duplicate_policy) => {
+                config_set!(playlist_duplicate_policy, playlist_duplicate_policy);
+                self.config.playlist_duplicate_policy = playlist_duplicate_policy;
+            }
+
+            Message::PlaylistDuplicateDialogAction(action) => {
+                self.handle_playlist_duplicate_dialog_action(action);
             }
 
             Message::PlayPause => {
@@ -1399,6 +1479,8 @@ impl cosmic::Application for AppModel {
                 }
 
                 DialogPage::DeleteSelectedFromPlaylist => {}
+
+                DialogPage::ConfirmPlaylistDuplicate { .. } => {}
             },
 
             Message::UpdateLibrary => {
@@ -1466,7 +1548,7 @@ impl cosmic::Application for AppModel {
             // on_dnd_leave
             |_entity| Action::None,
             // on_dnd_drop
-            |entity, _data, _action| Action::App(Message::NavDrop(entity)),
+            |entity, data, _action| Action::App(Message::NavDrop(entity, data.unwrap())),
             self.nav_dnd_id,
         )
         .into_container()
@@ -1537,6 +1619,154 @@ impl AppModel {
         }
     }
 
+    /// Get display name for track in duplicate dialog
+    fn duplicate_track_display_name(track: &Track) -> String {
+        track
+            .metadata
+            .title
+            .clone()
+            .filter(|title| !title.trim().is_empty())
+            .or_else(|| {
+                track
+                    .path
+                    .file_name()
+                    .and_then(|file_name| file_name.to_str())
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| track.path.display().to_string())
+    }
+
+    fn update_or_close_playlist_duplicate_dialog(
+        &mut self,
+        destination_id: PlaylistId,
+        tracks: VecDeque<Track>,
+    ) {
+        if tracks.is_empty() {
+            let _ = self.dialog_pages.pop_front();
+        } else {
+            self.dialog_pages
+                .update_front(DialogPage::ConfirmPlaylistDuplicate {
+                    destination_id,
+                    tracks,
+                });
+        }
+    }
+
+    fn handle_playlist_duplicate_dialog_action(&mut self, action: PlaylistDuplicateDialogAction) {
+        let Some(DialogPage::ConfirmPlaylistDuplicate {
+            destination_id,
+            mut tracks,
+        }) = self.dialog_pages.front().cloned()
+        else {
+            return;
+        };
+
+        match action {
+            PlaylistDuplicateDialogAction::Add => {
+                if let Some(track) = tracks.pop_front() {
+                    if let Err(err) = self
+                        .playlist_service
+                        .add_tracks(destination_id, vec![track])
+                    {
+                        eprintln!("Error adding duplicate track: {}", err);
+                    }
+                }
+
+                self.update_or_close_playlist_duplicate_dialog(destination_id, tracks);
+            }
+
+            PlaylistDuplicateDialogAction::YesToAll => {
+                let remaining_tracks: Vec<_> = tracks.drain(..).collect();
+
+                if !remaining_tracks.is_empty() {
+                    if let Err(err) = self
+                        .playlist_service
+                        .add_tracks(destination_id, remaining_tracks)
+                    {
+                        eprintln!("Error adding duplicate tracks: {}", err);
+                    }
+                }
+
+                self.update_or_close_playlist_duplicate_dialog(destination_id, tracks);
+            }
+
+            PlaylistDuplicateDialogAction::NoToAll => {
+                tracks.clear();
+                self.update_or_close_playlist_duplicate_dialog(destination_id, tracks);
+            }
+
+            PlaylistDuplicateDialogAction::Skip => {
+                // Skip just the current duplicate and continue prompting
+                let _ = tracks.pop_front();
+                self.update_or_close_playlist_duplicate_dialog(destination_id, tracks);
+            }
+        }
+    }
+
+    fn add_tracks_to_playlist_with_duplicate_policy(
+        &mut self,
+        destination_id: PlaylistId,
+        tracks: Vec<Track>,
+    ) {
+        if tracks.is_empty() {
+            return;
+        }
+
+        match self.config.playlist_duplicate_policy {
+            PlaylistDuplicatePolicy::Allow => {
+                if let Err(err) = self.playlist_service.add_tracks(destination_id, tracks) {
+                    eprintln!("Error adding tracks: {}", err);
+                }
+            }
+
+            PlaylistDuplicatePolicy::Disallow => {
+                match self
+                    .playlist_service
+                    .split_tracks_by_duplicate(destination_id, tracks)
+                {
+                    Ok((tracks_to_add, _duplicates)) => {
+                        if !tracks_to_add.is_empty() {
+                            if let Err(err) = self
+                                .playlist_service
+                                .add_tracks(destination_id, tracks_to_add)
+                            {
+                                eprintln!("Error adding tracks: {}", err);
+                            }
+                        }
+                    }
+                    Err(err) => eprintln!("Error checking playlist duplicates: {}", err),
+                }
+            }
+
+            PlaylistDuplicatePolicy::Ask => {
+                match self
+                    .playlist_service
+                    .split_tracks_by_duplicate(destination_id, tracks)
+                {
+                    Ok((tracks_to_add, duplicates)) => {
+                        if !tracks_to_add.is_empty() {
+                            if let Err(err) = self
+                                .playlist_service
+                                .add_tracks(destination_id, tracks_to_add)
+                            {
+                                eprintln!("Error adding tracks: {}", err);
+                            }
+                        }
+
+                        if !duplicates.is_empty() {
+                            self.dialog_pages
+                                .push_back(DialogPage::ConfirmPlaylistDuplicate {
+                                    destination_id,
+                                    tracks: VecDeque::from(duplicates),
+                                });
+                        }
+                    }
+                    Err(err) => eprintln!("Error checking playlist duplicates: {}", err),
+                }
+            }
+        }
+    }
+
     /// Settings page content
     fn settings(&self) -> Element<'_, Message> {
         let cosmic_theme::Spacing { space_xxs, .. } = theme::active().cosmic().spacing;
@@ -1544,6 +1774,11 @@ impl AppModel {
             AppTheme::Dark => 1,
             AppTheme::Light => 2,
             AppTheme::System => 0,
+        };
+        let playlist_duplicate_policy_selected = match self.config.playlist_duplicate_policy {
+            PlaylistDuplicatePolicy::Allow => 0,
+            PlaylistDuplicatePolicy::Disallow => 1,
+            PlaylistDuplicatePolicy::Ask => 2,
         };
         let title_sort_selected = match self.config.title_sort {
             TitleSortMode::Alphabetical => 0,
@@ -1609,6 +1844,22 @@ impl AppModel {
                                 1 => AppTheme::Dark,
                                 2 => AppTheme::Light,
                                 _ => AppTheme::System,
+                            })
+                        },
+                    ))
+                })
+                .into(),
+            settings::section()
+                .title(fl!("playlist"))
+                .add({
+                    settings::item::builder(fl!("playlist-duplicates")).control(widget::dropdown(
+                        &self.playlist_duplicate_policy_lables,
+                        Some(playlist_duplicate_policy_selected),
+                        move |index| {
+                            Message::PlaylistDuplicatePolicy(match index {
+                                1 => PlaylistDuplicatePolicy::Disallow,
+                                2 => PlaylistDuplicatePolicy::Ask,
+                                _ => PlaylistDuplicatePolicy::Allow,
                             })
                         },
                     ))
@@ -2336,6 +2587,7 @@ impl AppModel {
                 }
                 DialogPage::DeletePlaylist(_) => {}
                 DialogPage::DeleteSelectedFromPlaylist => {}
+                DialogPage::ConfirmPlaylistDuplicate { .. } => {}
             }
 
             if key == Key::Named(Named::Enter) {
@@ -2458,9 +2710,16 @@ impl menu::action::MenuAction for MenuAction {
 #[derive(Clone, Debug)]
 pub enum DialogPage {
     NewPlaylist(String),
-    RenamePlaylist { id: u32, name: String },
+    RenamePlaylist {
+        id: u32,
+        name: String,
+    },
     DeletePlaylist(u32),
     DeleteSelectedFromPlaylist,
+    ConfirmPlaylistDuplicate {
+        destination_id: PlaylistId,
+        tracks: VecDeque<Track>,
+    },
 }
 
 pub struct DialogPages {
@@ -2622,4 +2881,12 @@ impl TryFrom<(Vec<u8>, String)> for TrackDropData {
 // For nav_bar click
 fn nav_activate(id: nav_bar::Id) -> Action<Message> {
     Action::Cosmic(cosmic::app::Action::NavBar(id))
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum PlaylistDuplicateDialogAction {
+    Add,
+    YesToAll,
+    NoToAll,
+    Skip,
 }

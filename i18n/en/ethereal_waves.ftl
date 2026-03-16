@@ -50,6 +50,17 @@ title-sort = Title Sort
 track-number-short = Trk
 show-track-number-column = Show Track Number Column
 
+playlist-duplicates = Playlist Duplicates
+allow = Allow
+disallow = Disallow
+ask = Ask
+add = Add
+skip = Skip
+yes-to-all = Yes to All
+no-to-all = No to All
+playlist-duplicate = Track Already In Playlist
+add-duplicate-anyway = Add it anyway?
+
 previous = Previous
 play = Play
 next = Next
