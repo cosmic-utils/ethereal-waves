@@ -199,6 +199,8 @@ pub enum Message {
     UpdateConfig(Config),
     UpdateDialog(DialogPage),
     UpdateLibrary,
+    VolumeDown,
+    VolumeUp,
     WindowResized(Size),
     ZoomIn,
     ZoomOut,
@@ -1555,6 +1557,20 @@ impl cosmic::Application for AppModel {
                     .map(|progress| cosmic::Action::App(Message::LibraryProgress(progress)));
             }
 
+            Message::VolumeDown => {
+                let volume = (self.state.volume as f32 - 10.0).clamp(0.0, 100.0) as i32;
+                state_set!(volume, volume);
+                self.playback_service.set_volume(volume as f64 / 100.0);
+            }
+
+            Message::VolumeUp => {
+                let volume = (self.state.volume as f32 + 10.0).clamp(0.0, 100.0) as i32;
+                state_set!(volume, volume);
+                self.playback_service.set_volume(volume as f64 / 100.0);
+                let muted = false;
+                state_set!(muted, muted);
+            }
+
             Message::WindowResized(size) => {
                 let window_width = size.width;
                 let window_height = size.height;
@@ -2717,11 +2733,14 @@ pub enum MenuAction {
     RenamePlaylist,
     SelectAll,
     Settings,
+    ToggleMute,
     ToggleRepeat,
     ToggleRepeatMode,
     ToggleShuffle,
     TrackInfoPanel,
     UpdateLibrary,
+    VolumeDown,
+    VolumeUp,
     ZoomIn,
     ZoomOut,
 }
@@ -2743,11 +2762,14 @@ impl menu::action::MenuAction for MenuAction {
             MenuAction::Quit => Message::Quit,
             MenuAction::SelectAll => Message::SelectAll,
             MenuAction::Settings => Message::ToggleContextPage(ContextPage::Settings),
+            MenuAction::ToggleMute => Message::ToggleMute,
             MenuAction::ToggleRepeat => Message::ToggleRepeat,
             MenuAction::ToggleRepeatMode => Message::ToggleRepeatMode,
             MenuAction::ToggleShuffle => Message::ToggleShuffle,
             MenuAction::TrackInfoPanel => Message::ToggleContextPage(ContextPage::TrackInfo),
             MenuAction::UpdateLibrary => Message::UpdateLibrary,
+            MenuAction::VolumeDown => Message::VolumeDown,
+            MenuAction::VolumeUp => Message::VolumeUp,
             MenuAction::ZoomIn => Message::ZoomIn,
             MenuAction::ZoomOut => Message::ZoomOut,
         }

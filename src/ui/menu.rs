@@ -117,7 +117,17 @@ pub fn menu_bar<'a>(app: &AppModel) -> Element<'a, Message> {
         menu_button_optional(fl!("move-down"), MenuAction::MoveNavDown, has_playlist),
     ];
 
+    let mute_label = if app.state.muted {
+        fl!("unmute")
+    } else {
+        fl!("mute")
+    };
+
     let playback_items = vec![
+        menu::Item::Button(fl!("volume-up"), None, MenuAction::VolumeUp),
+        menu::Item::Button(fl!("volume-down"), None, MenuAction::VolumeDown),
+        menu::Item::Button(mute_label, None, MenuAction::ToggleMute),
+        menu::Item::Divider,
         menu::Item::CheckBox(
             fl!("shuffle"),
             None,

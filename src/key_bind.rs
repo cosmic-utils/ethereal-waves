@@ -33,6 +33,10 @@ pub fn key_binds() -> HashMap<KeyBind, MenuAction> {
     bind!([], Key::Named(Named::F2), RenamePlaylist);
     bind!([Ctrl], Key::Named(Named::ArrowUp), MoveNavUp);
     bind!([Ctrl], Key::Named(Named::ArrowDown), MoveNavDown);
+    bind!([], Key::Named(Named::F1), TrackInfoPanel);
+    bind!([], Key::Character("m".into()), ToggleMute);
+    bind!([], Key::Character("-".into()), VolumeDown);
+    bind!([], Key::Character("=".into()), VolumeUp);
 
     key_binds
 }

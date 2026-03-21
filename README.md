@@ -44,6 +44,10 @@ Non-exhaustive list of planned features in no particular order:
 - `Ctrl + A`: Select All
 - `Ctrl + click`: Select
 - `Shift + click`: Select Range
+- `F1`: Track Info
+- `m`: Toggle Mute
+- `-`: Volume Down
+- `=`: Volume Up and Unmute
 
 ## Installation
 This project uses `just` for building. To run development mode:

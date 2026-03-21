@@ -49,6 +49,10 @@ alphabetical = Alphabetical
 title-sort = Title Sort
 track-number-short = Trk
 show-track-number-column = Show Track Number Column
+mute = Mute
+unmute = Unmute
+volume-up = Volume Up
+volume-down = Volume Down
 
 playlist-duplicates = Playlist Duplicates
 allow = Allow
