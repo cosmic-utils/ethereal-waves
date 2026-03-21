@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use crate::app::{AppModel, Message, SortBy, TrackDropData};
+use crate::config::ListColumn;
 use crate::constants::*;
 use crate::fl;
+use crate::playlist::Track;
 use cosmic::{
     cosmic_theme,
     iced::{Alignment, Color, Length, clipboard::dnd::DndAction},
@@ -23,9 +25,12 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
     };
 
     let mut content = widget::column();
-    let show_track_number_column = app.config.list_show_track_number_column;
-    let show_album_column = app.config.list_show_album_column;
-    let show_album_artist_column = app.config.list_show_album_artist_column;
+    let visible_columns: Vec<ListColumn> = app
+        .config
+        .normalized_list_column_order()
+        .into_iter()
+        .filter(|column| column.is_visible(&app.config))
+        .collect();
 
     let track_number_label = fl!("track-number-short");
     let max_track_number_chars = view_model
@@ -52,46 +57,13 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
                 .width(Length::Fixed(view_model.number_column_width)),
         );
 
-    if show_track_number_column {
-        header_row = header_row.push(
-            widget::text::heading(track_number_label)
-                .align_x(Alignment::End)
-                .width(Length::Fixed(track_number_column_width)),
-        );
-    }
-
-    header_row = header_row.push(create_sort_button(
-        fl!("title"),
-        SortBy::Title,
-        &app.state,
-        &view_model.sort_direction_icon,
-        space_xxs,
-    ));
-
-    if show_album_column {
-        header_row = header_row.push(create_sort_button(
-            fl!("album"),
-            SortBy::Album,
-            &app.state,
-            &view_model.sort_direction_icon,
-            space_xxs,
-        ));
-    }
-
-    header_row = header_row.push(create_sort_button(
-        fl!("artist"),
-        SortBy::Artist,
-        &app.state,
-        &view_model.sort_direction_icon,
-        space_xxs,
-    ));
-
-    if show_album_artist_column {
-        header_row = header_row.push(create_sort_button(
-            fl!("album-artist"),
-            SortBy::AlbumArtist,
-            &app.state,
-            &view_model.sort_direction_icon,
+    for column in &visible_columns {
+        header_row = header_row.push(list_column_header(
+            app,
+            &view_model,
+            *column,
+            track_number_label.clone(),
+            track_number_column_width,
             space_xxs,
         ));
     }
@@ -185,81 +157,13 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
             .clip(true),
         );
 
-        if show_track_number_column {
-            // Track number metadata
-            row_element = row_element.push(
-                widget::container(
-                    widget::text(
-                        track
-                            .1
-                            .metadata
-                            .track_number
-                            .map(|track_number| track_number.to_string())
-                            .unwrap_or_default(),
-                    )
-                    .width(Length::Fixed(track_number_column_width))
-                    .align_x(Alignment::End)
-                    .align_y(view_model.row_align)
-                    .height(view_model.row_height),
-                )
-                .clip(true),
-            );
-        }
-
-        // Title and other columns
-        row_element = row_element.push(
-            widget::container(
-                widget::text(
-                    track
-                        .1
-                        .metadata
-                        .title
-                        .clone()
-                        .unwrap_or_else(|| track.1.path.to_string_lossy().to_string()),
-                )
-                .align_y(view_model.row_align)
-                .height(view_model.row_height)
-                .wrapping(view_model.wrapping)
-                .width(Length::FillPortion(1)),
-            )
-            .clip(true),
-        );
-
-        if show_album_column {
-            row_element = row_element.push(
-                widget::container(
-                    widget::text(track.1.metadata.album.clone().unwrap_or_default())
-                        .align_y(view_model.row_align)
-                        .height(view_model.row_height)
-                        .wrapping(view_model.wrapping)
-                        .width(Length::FillPortion(1)),
-                )
-                .clip(true),
-            );
-        }
-
-        row_element = row_element.push(
-            widget::container(
-                widget::text(track.1.metadata.artist.clone().unwrap_or_default())
-                    .align_y(view_model.row_align)
-                    .height(view_model.row_height)
-                    .wrapping(view_model.wrapping)
-                    .width(Length::FillPortion(1)),
-            )
-            .clip(true),
-        );
-
-        if show_album_artist_column {
-            row_element = row_element.push(
-                widget::container(
-                    widget::text(track.1.metadata.album_artist.clone().unwrap_or_default())
-                        .align_y(view_model.row_align)
-                        .height(view_model.row_height)
-                        .wrapping(view_model.wrapping)
-                        .width(Length::FillPortion(1)),
-                )
-                .clip(true),
-            );
+        for column in &visible_columns {
+            row_element = row_element.push(list_column_cell(
+                &track.1,
+                &view_model,
+                *column,
+                track_number_column_width,
+            ));
         }
 
         row_element = row_element.width(Length::Fill);
@@ -354,6 +258,103 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
     content = content.push(scroller);
 
     content
+}
+
+fn list_column_header<'a>(
+    app: &AppModel,
+    view_model: &crate::app::ListViewModel,
+    column: ListColumn,
+    track_number_label: String,
+    track_number_column_width: f32,
+    spacing: u16,
+) -> cosmic::Element<'a, Message> {
+    match column.sort_by() {
+        Some(sort_by) => create_sort_button(
+            match column {
+                ListColumn::Title => fl!("title"),
+                ListColumn::Album => fl!("album"),
+                ListColumn::Artist => fl!("artist"),
+                ListColumn::AlbumArtist => fl!("album-artist"),
+                ListColumn::TrackNumber => unreachable!(),
+            },
+            sort_by,
+            &app.state,
+            &view_model.sort_direction_icon,
+            spacing,
+        )
+        .into(),
+        None => widget::text::heading(track_number_label)
+            .align_x(Alignment::End)
+            .width(Length::Fixed(track_number_column_width))
+            .into(),
+    }
+}
+
+fn list_column_cell<'a>(
+    track: &Track,
+    view_model: &crate::app::ListViewModel,
+    column: ListColumn,
+    track_number_column_width: f32,
+) -> cosmic::Element<'a, Message> {
+    match column {
+        ListColumn::TrackNumber => widget::container(
+            widget::text(
+                track
+                    .metadata
+                    .track_number
+                    .map(|track_number| track_number.to_string())
+                    .unwrap_or_default(),
+            )
+            .width(Length::Fixed(track_number_column_width))
+            .align_x(Alignment::End)
+            .align_y(view_model.row_align)
+            .height(view_model.row_height),
+        )
+        .clip(true)
+        .into(),
+        ListColumn::Title => widget::container(
+            widget::text(
+                track
+                    .metadata
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| track.path.to_string_lossy().to_string()),
+            )
+            .align_y(view_model.row_align)
+            .height(view_model.row_height)
+            .wrapping(view_model.wrapping)
+            .width(Length::FillPortion(1)),
+        )
+        .clip(true)
+        .into(),
+        ListColumn::Album => widget::container(
+            widget::text(track.metadata.album.clone().unwrap_or_default())
+                .align_y(view_model.row_align)
+                .height(view_model.row_height)
+                .wrapping(view_model.wrapping)
+                .width(Length::FillPortion(1)),
+        )
+        .clip(true)
+        .into(),
+        ListColumn::Artist => widget::container(
+            widget::text(track.metadata.artist.clone().unwrap_or_default())
+                .align_y(view_model.row_align)
+                .height(view_model.row_height)
+                .wrapping(view_model.wrapping)
+                .width(Length::FillPortion(1)),
+        )
+        .clip(true)
+        .into(),
+        ListColumn::AlbumArtist => widget::container(
+            widget::text(track.metadata.album_artist.clone().unwrap_or_default())
+                .align_y(view_model.row_align)
+                .height(view_model.row_height)
+                .wrapping(view_model.wrapping)
+                .width(Length::FillPortion(1)),
+        )
+        .clip(true)
+        .into(),
+    }
 }
 
 // Helper function for sort buttons

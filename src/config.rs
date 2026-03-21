@@ -42,6 +42,74 @@ impl AppTheme {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ListColumn {
+    TrackNumber,
+    Title,
+    Album,
+    Artist,
+    AlbumArtist,
+}
+
+impl ListColumn {
+    pub const ALL: [Self; 5] = [
+        Self::TrackNumber,
+        Self::Title,
+        Self::Album,
+        Self::Artist,
+        Self::AlbumArtist,
+    ];
+
+    pub fn default_order() -> Vec<Self> {
+        Self::ALL.to_vec()
+    }
+
+    pub fn is_toggleable(&self) -> bool {
+        matches!(
+            self,
+            Self::TrackNumber | Self::Album | Self::Artist | Self::AlbumArtist
+        )
+    }
+
+    pub fn is_visible(&self, config: &Config) -> bool {
+        match self {
+            Self::TrackNumber => config.list_show_track_number_column,
+            Self::Title => true,
+            Self::Album => config.list_show_album_column,
+            Self::Artist => config.list_show_artist_column,
+            Self::AlbumArtist => config.list_show_album_artist_column,
+        }
+    }
+
+    pub fn sort_by(&self) -> Option<SortBy> {
+        match self {
+            Self::TrackNumber => None,
+            Self::Title => Some(SortBy::Title),
+            Self::Album => Some(SortBy::Album),
+            Self::Artist => Some(SortBy::Artist),
+            Self::AlbumArtist => Some(SortBy::AlbumArtist),
+        }
+    }
+
+    pub fn normalize_order(columns: &[Self]) -> Vec<Self> {
+        let mut normalized = Vec::with_capacity(Self::ALL.len());
+
+        for column in columns {
+            if Self::ALL.contains(column) && !normalized.contains(column) {
+                normalized.push(*column);
+            }
+        }
+
+        for column in Self::ALL {
+            if !normalized.contains(&column) {
+                normalized.push(column);
+            }
+        }
+
+        normalized
+    }
+}
+
 #[derive(Clone, CosmicConfigEntry, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[version = 1]
 #[serde(default)]
@@ -53,6 +121,8 @@ pub struct Config {
     pub list_show_track_number_column: bool,
     pub list_show_album_column: bool,
     pub list_show_album_artist_column: bool,
+    pub list_show_artist_column: bool,
+    pub list_column_order: Vec<ListColumn>,
     pub title_sort: TitleSortMode,
     pub playlist_duplicate_policy: PlaylistDuplicatePolicy,
 }
@@ -76,6 +146,10 @@ impl Config {
             }
         }
     }
+
+    pub fn normalized_list_column_order(&self) -> Vec<ListColumn> {
+        ListColumn::normalize_order(&self.list_column_order)
+    }
 }
 
 impl Default for Config {
@@ -88,6 +162,8 @@ impl Default for Config {
             list_show_track_number_column: false,
             list_show_album_column: true,
             list_show_album_artist_column: false,
+            list_show_artist_column: true,
+            list_column_order: ListColumn::default_order(),
             title_sort: TitleSortMode::Alphabetical,
             playlist_duplicate_policy: PlaylistDuplicatePolicy::Allow,
         }

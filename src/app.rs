@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use crate::config::{
-    AppTheme, CONFIG_VERSION, Config, PlaylistDuplicatePolicy, State, TitleSortMode,
+    AppTheme, CONFIG_VERSION, Config, ListColumn, PlaylistDuplicatePolicy, State, TitleSortMode,
 };
 use crate::constants::*;
 use crate::fl;
@@ -158,6 +158,8 @@ pub enum Message {
     ListSelectRow(usize),
     ListViewScroll(scrollable::Viewport),
     ListViewSort(SortBy),
+    MoveListColumnDown(ListColumn),
+    MoveListColumnUp(ListColumn),
     MoveNavDown,
     MoveNavUp,
     NavDrop(nav_bar::Id, TrackDropData),
@@ -186,6 +188,7 @@ pub enum Message {
     ToggleContextPage(ContextPage),
     ToggleListAlbumArtistColumn(bool),
     ToggleListAlbumColumn(bool),
+    ToggleListArtistColumn(bool),
     ToggleListRowAlignTop(bool),
     ToggleListTextWrap(bool),
     ToggleListTrackNumberColumn(bool),
@@ -1030,6 +1033,48 @@ impl cosmic::Application for AppModel {
                 }
             }
 
+            Message::MoveListColumnUp(column) => {
+                let mut list_column_order = self.config.normalized_list_column_order();
+
+                let Some(index) = list_column_order
+                    .iter()
+                    .position(|current_column| *current_column == column)
+                else {
+                    return Task::none();
+                };
+
+                let Some(new_index) = index.checked_add_signed(-1) else {
+                    return Task::none();
+                };
+
+                list_column_order.swap(index, new_index);
+                self.config.list_column_order = list_column_order.clone();
+                config_set!(list_column_order, list_column_order);
+            }
+
+            Message::MoveListColumnDown(column) => {
+                let mut list_column_order = self.config.normalized_list_column_order();
+
+                let Some(index) = list_column_order
+                    .iter()
+                    .position(|current_column| *current_column == column)
+                else {
+                    return Task::none();
+                };
+
+                let Some(new_index) = index.checked_add_signed(1) else {
+                    return Task::none();
+                };
+
+                if new_index >= list_column_order.len() {
+                    return Task::none();
+                }
+
+                list_column_order.swap(index, new_index);
+                self.config.list_column_order = list_column_order.clone();
+                config_set!(list_column_order, list_column_order);
+            }
+
             Message::LaunchUrl(url) => match open::that_detached(&url) {
                 Ok(()) => {}
                 Err(err) => {
@@ -1399,6 +1444,10 @@ impl cosmic::Application for AppModel {
 
             Message::ToggleListAlbumColumn(list_show_album_column) => {
                 config_set!(list_show_album_column, list_show_album_column);
+            }
+
+            Message::ToggleListArtistColumn(list_show_artist_column) => {
+                config_set!(list_show_artist_column, list_show_artist_column);
             }
 
             Message::ToggleListAlbumArtistColumn(list_show_album_artist_column) => {
@@ -1832,6 +1881,47 @@ impl AppModel {
             }
         }
 
+        let ordered_columns = self.config.normalized_list_column_order();
+        let mut list_view_section = settings::section()
+            .title(fl!("list-view"))
+            .add({
+                settings::item::builder(fl!("title-sort")).control(widget::dropdown(
+                    &self.title_sort_labels,
+                    Some(title_sort_selected),
+                    move |index| {
+                        Message::TitleSort(match index {
+                            1 => TitleSortMode::TrackNumber,
+                            _ => TitleSortMode::Alphabetical,
+                        })
+                    },
+                ))
+            })
+            .add({
+                settings::item::builder(fl!("wrap-text")).control(
+                    toggler(self.config.list_text_wrap).on_toggle(Message::ToggleListTextWrap),
+                )
+            })
+            .add({
+                settings::item::builder(fl!("align-rows-top")).control(
+                    toggler(self.config.list_row_align_top)
+                        .on_toggle(Message::ToggleListRowAlignTop),
+                )
+            });
+
+        for (index, column) in ordered_columns.iter().copied().enumerate() {
+            list_view_section = list_view_section.add({
+                settings::item::builder(list_column_label(column)).control(
+                    list_column_settings_control(
+                        &self.config,
+                        column,
+                        index > 0,
+                        index + 1 < ordered_columns.len(),
+                        space_xxs,
+                    ),
+                )
+            });
+        }
+
         settings::view_column(vec![
             settings::section()
                 .title(fl!("appearance"))
@@ -1865,50 +1955,7 @@ impl AppModel {
                     ))
                 })
                 .into(),
-            settings::section()
-                .title(fl!("list-view"))
-                .add({
-                    settings::item::builder(fl!("title-sort")).control(widget::dropdown(
-                        &self.title_sort_labels,
-                        Some(title_sort_selected),
-                        move |index| {
-                            Message::TitleSort(match index {
-                                1 => TitleSortMode::TrackNumber,
-                                _ => TitleSortMode::Alphabetical,
-                            })
-                        },
-                    ))
-                })
-                .add({
-                    settings::item::builder(fl!("wrap-text")).control(
-                        toggler(self.config.list_text_wrap).on_toggle(Message::ToggleListTextWrap),
-                    )
-                })
-                .add({
-                    settings::item::builder(fl!("align-rows-top")).control(
-                        toggler(self.config.list_row_align_top)
-                            .on_toggle(Message::ToggleListRowAlignTop),
-                    )
-                })
-                .add({
-                    settings::item::builder(fl!("show-track-number-column")).control(
-                        toggler(self.config.list_show_track_number_column)
-                            .on_toggle(Message::ToggleListTrackNumberColumn),
-                    )
-                })
-                .add({
-                    settings::item::builder(fl!("show-album-column")).control(
-                        toggler(self.config.list_show_album_column)
-                            .on_toggle(Message::ToggleListAlbumColumn),
-                    )
-                })
-                .add({
-                    settings::item::builder(fl!("show-album-artist-column")).control(
-                        toggler(self.config.list_show_album_artist_column)
-                            .on_toggle(Message::ToggleListAlbumArtistColumn),
-                    )
-                })
-                .into(),
+            list_view_section.into(),
             settings::section()
                 .title(fl!("library"))
                 .add(library_column)
@@ -2801,6 +2848,56 @@ fn track_info_row<'a>(title: String, data: String) -> widget::Row<'a, Message> {
         .push(widget::text(data).width(Length::FillPortion(1)))
         .spacing(space_xxs)
         .width(Length::Fill)
+}
+
+fn list_column_label(column: ListColumn) -> String {
+    match column {
+        ListColumn::TrackNumber => fl!("track-number-short"),
+        ListColumn::Title => fl!("title"),
+        ListColumn::Album => fl!("album"),
+        ListColumn::Artist => fl!("artist"),
+        ListColumn::AlbumArtist => fl!("album-artist"),
+    }
+}
+
+fn list_column_settings_control<'a>(
+    config: &Config,
+    column: ListColumn,
+    can_move_up: bool,
+    can_move_down: bool,
+    spacing: u16,
+) -> Element<'a, Message> {
+    let mut controls = row().spacing(spacing).align_y(Alignment::Center);
+
+    if column.is_toggleable() {
+        controls = controls.push(match column {
+            ListColumn::TrackNumber => toggler(config.list_show_track_number_column)
+                .on_toggle(Message::ToggleListTrackNumberColumn),
+            ListColumn::Album => toggler(config.list_show_album_column)
+                .on_toggle(Message::ToggleListAlbumColumn)
+                .into(),
+            ListColumn::AlbumArtist => toggler(config.list_show_album_artist_column)
+                .on_toggle(Message::ToggleListAlbumArtistColumn)
+                .into(),
+            ListColumn::Artist => toggler(config.list_show_artist_column)
+                .on_toggle(Message::ToggleListArtistColumn)
+                .into(),
+            ListColumn::Title => unreachable!(),
+        });
+    }
+
+    controls
+        .push(
+            widget::button::icon(widget::icon::from_name("pan-up-symbolic"))
+                .extra_small()
+                .on_press_maybe(can_move_up.then_some(Message::MoveListColumnUp(column))),
+        )
+        .push(
+            widget::button::icon(widget::icon::from_name("pan-down-symbolic"))
+                .extra_small()
+                .on_press_maybe(can_move_down.then_some(Message::MoveListColumnDown(column))),
+        )
+        .into()
 }
 
 pub struct ListViewModel {
