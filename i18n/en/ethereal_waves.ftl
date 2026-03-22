@@ -105,6 +105,10 @@ album-disc-count = Album Disc Count
 track-number = Track Number
 track-count = Track Count
 duration = Duration
+file-path = File path
+track-total-short = Trks
+disc-number-short = Disc
+disc-total-short = Discs
 
 # Empty library page
 go-to-view = Go to View /

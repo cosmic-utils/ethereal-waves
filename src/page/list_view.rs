@@ -62,7 +62,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
             app,
             &view_model,
             *column,
-            track_number_label.clone(),
+            &track_number_label,
             track_number_column_width,
             space_xxs,
         ));
@@ -264,28 +264,25 @@ fn list_column_header<'a>(
     app: &AppModel,
     view_model: &crate::app::ListViewModel,
     column: ListColumn,
-    track_number_label: String,
+    track_number_label: &str,
     track_number_column_width: f32,
     spacing: u16,
 ) -> cosmic::Element<'a, Message> {
+    let label = list_column_heading(column, track_number_label);
+    let width = list_column_width(column, track_number_column_width);
+
     match column.sort_by() {
         Some(sort_by) => create_sort_button(
-            match column {
-                ListColumn::Title => fl!("title"),
-                ListColumn::Album => fl!("album"),
-                ListColumn::Artist => fl!("artist"),
-                ListColumn::AlbumArtist => fl!("album-artist"),
-                ListColumn::TrackNumber => unreachable!(),
-            },
+            label,
             sort_by,
             &app.state,
             &view_model.sort_direction_icon,
             spacing,
         )
         .into(),
-        None => widget::text::heading(track_number_label)
+        None => widget::text::heading(label)
             .align_x(Alignment::End)
-            .width(Length::Fixed(track_number_column_width))
+            .width(width)
             .into(),
     }
 }
@@ -297,63 +294,160 @@ fn list_column_cell<'a>(
     track_number_column_width: f32,
 ) -> cosmic::Element<'a, Message> {
     match column {
-        ListColumn::TrackNumber => widget::container(
-            widget::text(
-                track
-                    .metadata
-                    .track_number
-                    .map(|track_number| track_number.to_string())
-                    .unwrap_or_default(),
-            )
-            .width(Length::Fixed(track_number_column_width))
-            .align_x(Alignment::End)
-            .align_y(view_model.row_align)
-            .height(view_model.row_height),
-        )
-        .clip(true)
-        .into(),
-        ListColumn::Title => widget::container(
-            widget::text(
-                track
-                    .metadata
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| track.path.to_string_lossy().to_string()),
-            )
+        ListColumn::TrackNumber => compact_text_cell(
+            track
+                .metadata
+                .track_number
+                .map(|track_number| track_number.to_string())
+                .unwrap_or_default(),
+            list_column_width(column, track_number_column_width),
+            view_model,
+        ),
+        ListColumn::Title => fill_text_cell(
+            track
+                .metadata
+                .title
+                .clone()
+                .unwrap_or_else(|| track.path.to_string_lossy().to_string()),
+            list_column_width(column, track_number_column_width),
+            view_model,
+        ),
+        ListColumn::Album => fill_text_cell(
+            track.metadata.album.clone().unwrap_or_default(),
+            list_column_width(column, track_number_column_width),
+            view_model,
+        ),
+        ListColumn::Artist => fill_text_cell(
+            track.metadata.artist.clone().unwrap_or_default(),
+            list_column_width(column, track_number_column_width),
+            view_model,
+        ),
+        ListColumn::AlbumArtist => fill_text_cell(
+            track.metadata.album_artist.clone().unwrap_or_default(),
+            list_column_width(column, track_number_column_width),
+            view_model,
+        ),
+        ListColumn::TrackTotal => compact_text_cell(
+            track
+                .metadata
+                .track_count
+                .map(|track_total| track_total.to_string())
+                .unwrap_or_default(),
+            list_column_width(column, track_number_column_width),
+            view_model,
+        ),
+        ListColumn::DiscNumber => compact_text_cell(
+            track
+                .metadata
+                .album_disc_number
+                .map(|disc_number| disc_number.to_string())
+                .unwrap_or_default(),
+            list_column_width(column, track_number_column_width),
+            view_model,
+        ),
+        ListColumn::DiscTotal => compact_text_cell(
+            track
+                .metadata
+                .album_disc_count
+                .map(|disc_total| disc_total.to_string())
+                .unwrap_or_default(),
+            list_column_width(column, track_number_column_width),
+            view_model,
+        ),
+        ListColumn::Genre => fill_text_cell(
+            track.metadata.genre.clone().unwrap_or_default(),
+            list_column_width(column, track_number_column_width),
+            view_model,
+        ),
+        ListColumn::FilePath => fill_text_cell(
+            track.path.to_string_lossy().to_string(),
+            list_column_width(column, track_number_column_width),
+            view_model,
+        ),
+        ListColumn::Duration => compact_text_cell(
+            format_duration(track.metadata.duration),
+            list_column_width(column, track_number_column_width),
+            view_model,
+        ),
+    }
+}
+
+fn list_column_heading(column: ListColumn, track_number_label: &str) -> String {
+    match column {
+        ListColumn::TrackNumber => track_number_label.to_string(),
+        ListColumn::Title => fl!("title"),
+        ListColumn::Album => fl!("album"),
+        ListColumn::Artist => fl!("artist"),
+        ListColumn::AlbumArtist => fl!("album-artist"),
+        ListColumn::TrackTotal => fl!("track-total-short"),
+        ListColumn::DiscNumber => fl!("disc-number-short"),
+        ListColumn::DiscTotal => fl!("disc-total-short"),
+        ListColumn::Genre => fl!("genre"),
+        ListColumn::FilePath => fl!("file-path"),
+        ListColumn::Duration => fl!("duration"),
+    }
+}
+
+fn list_column_width(column: ListColumn, track_number_column_width: f32) -> Length {
+    match column {
+        ListColumn::TrackNumber => Length::Fixed(track_number_column_width),
+        ListColumn::Title | ListColumn::FilePath => Length::FillPortion(2),
+        ListColumn::TrackTotal | ListColumn::DiscNumber | ListColumn::DiscTotal => {
+            Length::Fixed(COMPACT_COLUMN_WIDTH)
+        }
+        ListColumn::Duration => Length::Fixed(DURATION_COLUMN_WIDTH),
+        ListColumn::Album | ListColumn::Artist | ListColumn::AlbumArtist | ListColumn::Genre => {
+            Length::FillPortion(1)
+        }
+    }
+}
+
+fn fill_text_cell<'a>(
+    value: String,
+    width: Length,
+    view_model: &crate::app::ListViewModel,
+) -> cosmic::Element<'a, Message> {
+    widget::container(
+        widget::text(value)
             .align_y(view_model.row_align)
             .height(view_model.row_height)
             .wrapping(view_model.wrapping)
-            .width(Length::FillPortion(1)),
-        )
-        .clip(true)
-        .into(),
-        ListColumn::Album => widget::container(
-            widget::text(track.metadata.album.clone().unwrap_or_default())
-                .align_y(view_model.row_align)
-                .height(view_model.row_height)
-                .wrapping(view_model.wrapping)
-                .width(Length::FillPortion(1)),
-        )
-        .clip(true)
-        .into(),
-        ListColumn::Artist => widget::container(
-            widget::text(track.metadata.artist.clone().unwrap_or_default())
-                .align_y(view_model.row_align)
-                .height(view_model.row_height)
-                .wrapping(view_model.wrapping)
-                .width(Length::FillPortion(1)),
-        )
-        .clip(true)
-        .into(),
-        ListColumn::AlbumArtist => widget::container(
-            widget::text(track.metadata.album_artist.clone().unwrap_or_default())
-                .align_y(view_model.row_align)
-                .height(view_model.row_height)
-                .wrapping(view_model.wrapping)
-                .width(Length::FillPortion(1)),
-        )
-        .clip(true)
-        .into(),
+            .width(width),
+    )
+    .clip(true)
+    .into()
+}
+
+fn compact_text_cell<'a>(
+    value: String,
+    width: Length,
+    view_model: &crate::app::ListViewModel,
+) -> cosmic::Element<'a, Message> {
+    widget::container(
+        widget::text(value)
+            .align_x(Alignment::End)
+            .align_y(view_model.row_align)
+            .height(view_model.row_height)
+            .width(width),
+    )
+    .clip(true)
+    .into()
+}
+
+fn format_duration(duration: Option<f32>) -> String {
+    let Some(duration) = duration else {
+        return String::new();
+    };
+
+    let total_seconds = duration.floor() as u32;
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
     }
 }
 

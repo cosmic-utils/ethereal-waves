@@ -7,6 +7,8 @@ pub const MIN_SIZE_MULTIPLIER: f32 = 4.0;
 pub const MAX_SIZE_MULTIPLIER: f32 = 30.0;
 pub const ZOOM_STEP: f32 = 2.0;
 pub const FOOTER_CONDENSED_BREAKPOINT: f32 = 700.0;
+pub const COMPACT_COLUMN_WIDTH: f32 = 96.0;
+pub const DURATION_COLUMN_WIDTH: f32 = 104.0;
 
 /// UI Display Constants
 pub const TRACK_INFO_LIST_TOTAL: usize = 10;

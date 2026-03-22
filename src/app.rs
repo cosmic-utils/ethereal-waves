@@ -189,9 +189,16 @@ pub enum Message {
     ToggleListAlbumArtistColumn(bool),
     ToggleListAlbumColumn(bool),
     ToggleListArtistColumn(bool),
+    ToggleListDiscNumberColumn(bool),
+    ToggleListDiscTotalColumn(bool),
+    ToggleListDurationColumn(bool),
+    ToggleListFilePathColumn(bool),
+    ToggleListGenreColumn(bool),
     ToggleListRowAlignTop(bool),
     ToggleListTextWrap(bool),
+    ToggleListTitleColumn(bool),
     ToggleListTrackNumberColumn(bool),
+    ToggleListTrackTotalColumn(bool),
     ToggleMute,
     ToggleRepeat,
     ToggleRepeatMode,
@@ -1464,6 +1471,34 @@ impl cosmic::Application for AppModel {
                 config_set!(list_show_track_number_column, list_show_track_number_column);
             }
 
+            Message::ToggleListTrackTotalColumn(list_show_track_total_column) => {
+                config_set!(list_show_track_total_column, list_show_track_total_column);
+            }
+
+            Message::ToggleListDiscNumberColumn(list_show_disc_number_column) => {
+                config_set!(list_show_disc_number_column, list_show_disc_number_column);
+            }
+
+            Message::ToggleListDiscTotalColumn(list_show_disc_total_column) => {
+                config_set!(list_show_disc_total_column, list_show_disc_total_column);
+            }
+
+            Message::ToggleListGenreColumn(list_show_genre_column) => {
+                config_set!(list_show_genre_column, list_show_genre_column);
+            }
+
+            Message::ToggleListFilePathColumn(list_show_file_path_column) => {
+                config_set!(list_show_file_path_column, list_show_file_path_column);
+            }
+
+            Message::ToggleListDurationColumn(list_show_duration_column) => {
+                config_set!(list_show_duration_column, list_show_duration_column);
+            }
+
+            Message::ToggleListTitleColumn(list_show_title_column) => {
+                config_set!(list_show_title_column, list_show_title_column);
+            }
+
             Message::ToggleMute => {
                 let muted = !self.state.muted;
                 if muted {
@@ -2446,11 +2481,14 @@ impl AppModel {
                 .cloned()
                 .enumerate()
                 .filter(|(_, t)| {
+                    let path = t.path.to_string_lossy();
                     [
                         t.metadata.title.as_deref(),
                         t.metadata.album.as_deref(),
                         t.metadata.artist.as_deref(),
                         t.metadata.album_artist.as_deref(),
+                        t.metadata.genre.as_deref(),
+                        Some(path.as_ref()),
                     ]
                     .into_iter()
                     .flatten()
@@ -2834,7 +2872,13 @@ pub enum SortBy {
     Artist,
     Album,
     AlbumArtist,
+    DiscNumber,
+    DiscTotal,
+    Duration,
+    FilePath,
+    Genre,
     Title,
+    TrackTotal,
 }
 
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
@@ -2879,6 +2923,12 @@ fn list_column_label(column: ListColumn) -> String {
         ListColumn::Album => fl!("album"),
         ListColumn::Artist => fl!("artist"),
         ListColumn::AlbumArtist => fl!("album-artist"),
+        ListColumn::TrackTotal => fl!("track-count"),
+        ListColumn::DiscNumber => fl!("album-disc-number"),
+        ListColumn::DiscTotal => fl!("album-disc-count"),
+        ListColumn::Genre => fl!("genre"),
+        ListColumn::FilePath => fl!("file-path"),
+        ListColumn::Duration => fl!("duration"),
     }
 }
 
@@ -2892,9 +2942,10 @@ fn list_column_settings_control<'a>(
     let mut controls = row().spacing(spacing).align_y(Alignment::Center);
 
     if column.is_toggleable() {
-        controls = controls.push(match column {
+        let toggle: Element<'a, Message> = match column {
             ListColumn::TrackNumber => toggler(config.list_show_track_number_column)
-                .on_toggle(Message::ToggleListTrackNumberColumn),
+                .on_toggle(Message::ToggleListTrackNumberColumn)
+                .into(),
             ListColumn::Album => toggler(config.list_show_album_column)
                 .on_toggle(Message::ToggleListAlbumColumn)
                 .into(),
@@ -2904,8 +2955,30 @@ fn list_column_settings_control<'a>(
             ListColumn::Artist => toggler(config.list_show_artist_column)
                 .on_toggle(Message::ToggleListArtistColumn)
                 .into(),
-            ListColumn::Title => unreachable!(),
-        });
+            ListColumn::TrackTotal => toggler(config.list_show_track_total_column)
+                .on_toggle(Message::ToggleListTrackTotalColumn)
+                .into(),
+            ListColumn::DiscNumber => toggler(config.list_show_disc_number_column)
+                .on_toggle(Message::ToggleListDiscNumberColumn)
+                .into(),
+            ListColumn::DiscTotal => toggler(config.list_show_disc_total_column)
+                .on_toggle(Message::ToggleListDiscTotalColumn)
+                .into(),
+            ListColumn::Genre => toggler(config.list_show_genre_column)
+                .on_toggle(Message::ToggleListGenreColumn)
+                .into(),
+            ListColumn::FilePath => toggler(config.list_show_file_path_column)
+                .on_toggle(Message::ToggleListFilePathColumn)
+                .into(),
+            ListColumn::Duration => toggler(config.list_show_duration_column)
+                .on_toggle(Message::ToggleListDurationColumn)
+                .into(),
+            ListColumn::Title => toggler(config.list_show_title_column)
+                .on_toggle(Message::ToggleListTitleColumn)
+                .into(),
+        };
+
+        controls = controls.push(toggle);
     }
 
     controls

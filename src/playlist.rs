@@ -100,6 +100,45 @@ impl Playlist {
                     .then_with(|| compare_title(a, b, title_sort)),
 
                 SortBy::Title => a.metadata.title.cmp(&b.metadata.title),
+
+                SortBy::TrackTotal => a
+                    .metadata
+                    .track_count
+                    .cmp(&b.metadata.track_count)
+                    .then(a.metadata.album.cmp(&b.metadata.album))
+                    .then_with(|| compare_title(a, b, title_sort)),
+
+                SortBy::DiscNumber => a
+                    .metadata
+                    .album_disc_number
+                    .cmp(&b.metadata.album_disc_number)
+                    .then(a.metadata.track_number.cmp(&b.metadata.track_number))
+                    .then_with(|| compare_title(a, b, title_sort)),
+
+                SortBy::DiscTotal => a
+                    .metadata
+                    .album_disc_count
+                    .cmp(&b.metadata.album_disc_count)
+                    .then(
+                        a.metadata
+                            .album_disc_number
+                            .cmp(&b.metadata.album_disc_number),
+                    )
+                    .then(a.metadata.track_number.cmp(&b.metadata.track_number))
+                    .then_with(|| compare_title(a, b, title_sort)),
+
+                SortBy::Genre => a
+                    .metadata
+                    .genre
+                    .cmp(&b.metadata.genre)
+                    .then(a.metadata.artist.cmp(&b.metadata.artist))
+                    .then(a.metadata.album.cmp(&b.metadata.album))
+                    .then_with(|| compare_title(a, b, title_sort)),
+
+                SortBy::FilePath => a.path.cmp(&b.path),
+
+                SortBy::Duration => compare_optional_f32(a.metadata.duration, b.metadata.duration)
+                    .then_with(|| compare_title(a, b, title_sort)),
             };
 
             match sort_direction {
@@ -223,5 +262,14 @@ fn compare_title(a: &Track, b: &Track, title_sort: TitleSortMode) -> Ordering {
             .cmp(&b.metadata.album_disc_number)
             .then(a.metadata.track_number.cmp(&b.metadata.track_number))
             .then_with(|| a.metadata.title.cmp(&b.metadata.title)),
+    }
+}
+
+fn compare_optional_f32(a: Option<f32>, b: Option<f32>) -> Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => a.total_cmp(&b),
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
     }
 }

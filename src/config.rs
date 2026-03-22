@@ -44,20 +44,32 @@ impl AppTheme {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ListColumn {
+    TrackTotal,
     TrackNumber,
     Title,
     Album,
-    Artist,
     AlbumArtist,
+    Artist,
+    DiscNumber,
+    DiscTotal,
+    Duration,
+    FilePath,
+    Genre,
 }
 
 impl ListColumn {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 11] = [
+        Self::TrackTotal,
         Self::TrackNumber,
         Self::Title,
         Self::Album,
-        Self::Artist,
         Self::AlbumArtist,
+        Self::Artist,
+        Self::DiscNumber,
+        Self::DiscTotal,
+        Self::Duration,
+        Self::FilePath,
+        Self::Genre,
     ];
 
     pub fn default_order() -> Vec<Self> {
@@ -67,27 +79,49 @@ impl ListColumn {
     pub fn is_toggleable(&self) -> bool {
         matches!(
             self,
-            Self::TrackNumber | Self::Album | Self::Artist | Self::AlbumArtist
+            Self::Album
+                | Self::AlbumArtist
+                | Self::Artist
+                | Self::DiscNumber
+                | Self::DiscTotal
+                | Self::Duration
+                | Self::FilePath
+                | Self::Genre
+                | Self::Title
+                | Self::TrackNumber
+                | Self::TrackTotal
         )
     }
 
     pub fn is_visible(&self, config: &Config) -> bool {
         match self {
-            Self::TrackNumber => config.list_show_track_number_column,
-            Self::Title => true,
             Self::Album => config.list_show_album_column,
-            Self::Artist => config.list_show_artist_column,
             Self::AlbumArtist => config.list_show_album_artist_column,
+            Self::Artist => config.list_show_artist_column,
+            Self::DiscNumber => config.list_show_disc_number_column,
+            Self::DiscTotal => config.list_show_disc_total_column,
+            Self::Duration => config.list_show_duration_column,
+            Self::FilePath => config.list_show_file_path_column,
+            Self::Genre => config.list_show_genre_column,
+            Self::Title => config.list_show_title_column,
+            Self::TrackTotal => config.list_show_track_total_column,
+            Self::TrackNumber => config.list_show_track_number_column,
         }
     }
 
     pub fn sort_by(&self) -> Option<SortBy> {
         match self {
             Self::TrackNumber => None,
+            Self::TrackTotal => Some(SortBy::TrackTotal),
             Self::Title => Some(SortBy::Title),
             Self::Album => Some(SortBy::Album),
-            Self::Artist => Some(SortBy::Artist),
             Self::AlbumArtist => Some(SortBy::AlbumArtist),
+            Self::Artist => Some(SortBy::Artist),
+            Self::DiscNumber => Some(SortBy::DiscNumber),
+            Self::DiscTotal => Some(SortBy::DiscTotal),
+            Self::Duration => Some(SortBy::Duration),
+            Self::Genre => Some(SortBy::Genre),
+            Self::FilePath => Some(SortBy::FilePath),
         }
     }
 
@@ -118,10 +152,17 @@ pub struct Config {
     pub library_paths: HashSet<String>,
     pub list_text_wrap: bool,
     pub list_row_align_top: bool,
-    pub list_show_track_number_column: bool,
     pub list_show_album_column: bool,
     pub list_show_album_artist_column: bool,
     pub list_show_artist_column: bool,
+    pub list_show_disc_number_column: bool,
+    pub list_show_disc_total_column: bool,
+    pub list_show_duration_column: bool,
+    pub list_show_file_path_column: bool,
+    pub list_show_genre_column: bool,
+    pub list_show_title_column: bool,
+    pub list_show_track_number_column: bool,
+    pub list_show_track_total_column: bool,
     pub list_column_order: Vec<ListColumn>,
     pub title_sort: TitleSortMode,
     pub playlist_duplicate_policy: PlaylistDuplicatePolicy,
@@ -159,10 +200,17 @@ impl Default for Config {
             library_paths: HashSet::new(),
             list_text_wrap: true,
             list_row_align_top: false,
-            list_show_track_number_column: false,
             list_show_album_column: true,
             list_show_album_artist_column: false,
             list_show_artist_column: true,
+            list_show_disc_number_column: false,
+            list_show_disc_total_column: false,
+            list_show_genre_column: false,
+            list_show_duration_column: false,
+            list_show_file_path_column: false,
+            list_show_title_column: true,
+            list_show_track_number_column: false,
+            list_show_track_total_column: false,
             list_column_order: ListColumn::default_order(),
             title_sort: TitleSortMode::Alphabetical,
             playlist_duplicate_policy: PlaylistDuplicatePolicy::Allow,
