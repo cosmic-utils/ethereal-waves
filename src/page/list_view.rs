@@ -270,7 +270,7 @@ fn list_column_header<'a>(
 ) -> cosmic::Element<'a, Message> {
     let label = list_column_heading(column, track_number_label);
     let width = list_column_width(column, track_number_column_width);
-
+    println!("Header {:?} {:?}", label, width);
     match column.sort_by() {
         Some(sort_by) => create_sort_button(
             label,
@@ -278,6 +278,7 @@ fn list_column_header<'a>(
             &app.state,
             &view_model.sort_direction_icon,
             spacing,
+            width,
         )
         .into(),
         None => widget::text::heading(label)
@@ -412,8 +413,9 @@ fn fill_text_cell<'a>(
             .align_y(view_model.row_align)
             .height(view_model.row_height)
             .wrapping(view_model.wrapping)
-            .width(width),
+            .width(Length::Fill),
     )
+    .width(width)
     .clip(true)
     .into()
 }
@@ -428,8 +430,9 @@ fn compact_text_cell<'a>(
             .align_x(Alignment::End)
             .align_y(view_model.row_align)
             .height(view_model.row_height)
-            .width(width),
+            .width(Length::Fill),
     )
+    .width(width)
     .clip(true)
     .into()
 }
@@ -458,6 +461,7 @@ fn create_sort_button<'a>(
     state: &crate::config::State,
     sort_icon: &str,
     spacing: u16,
+    width: Length,
 ) -> widget::Button<'a, Message> {
     let mut row = widget::row()
         .align_y(Alignment::Center)
@@ -472,9 +476,10 @@ fn create_sort_button<'a>(
         .class(button_style(false, true))
         .on_press(Message::ListViewSort(sort_by))
         .padding(0)
-        .width(Length::FillPortion(1))
+        .width(width)
 }
 
+// Row theming
 fn button_style(selected: bool, heading: bool) -> theme::Button {
     theme::Button::Custom {
         active: Box::new(move |_focus, theme| button_appearance(theme, selected, heading, false)),
