@@ -251,6 +251,10 @@ impl Track {
     pub fn update_date_added(&mut self) {
         self.date_added = Local::now().to_string();
     }
+
+    pub fn instance_id(&self) -> String {
+        self.entry_id.to_string()
+    }
 }
 
 fn compare_title(a: &Track, b: &Track, title_sort: TitleSortMode) -> Ordering {

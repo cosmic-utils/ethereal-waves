@@ -83,7 +83,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
         .visible_tracks
         .iter()
         .filter(|(_, t)| t.selected)
-        .filter_map(|(_, t)| t.metadata.id.clone())
+        .map(|(_, t)| t.instance_id())
         .collect();
 
     let selected_count = selected_track_ids.len();
@@ -95,7 +95,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
         .take(view_model.take)
         .enumerate()
     {
-        let id = track.1.metadata.id.clone().unwrap();
+        let track_id = track.1.instance_id();
         let is_playing_track = app.is_track_playing(&track.1, &view_model);
 
         let mut row_element = widget::row()
@@ -114,15 +114,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
                 .height(view_model.row_height),
             );
         } else {
-            // Check if track is in library
-            let is_in_library = track.1.metadata.id.as_ref().map_or(false, |track_id| {
-                app.library.media.values().any(|metadata| {
-                    metadata
-                        .id
-                        .as_ref()
-                        .map_or(false, |lib_id| lib_id == track_id)
-                })
-            });
+            let is_in_library = app.library.media.contains_key(&track.1.path);
 
             if !is_in_library {
                 // Track is not in library, show indicator
@@ -170,7 +162,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
 
         let row_button = widget::button::custom(row_element)
             .class(button_style(track.1.selected, false))
-            .on_press_down(Message::ChangeTrack(id.clone(), track.0))
+            .on_press_down(Message::ChangeTrack(track.0))
             .padding(0)
             .width(Length::Fill);
 
@@ -200,7 +192,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
         let drag_ids: Vec<String> = if track.1.selected && !selected_track_ids.is_empty() {
             selected_track_ids.clone()
         } else {
-            vec![id.clone()]
+            vec![track_id.clone()]
         };
 
         let draggable_row = widget::dnd_source::DndSource::new(row_mouse)

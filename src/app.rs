@@ -146,7 +146,7 @@ pub enum Message {
     AddNowPlayingToPlaylist(PlaylistId),
     AppTheme(AppTheme),
     CancelLibraryUpdate,
-    ChangeTrack(String, usize),
+    ChangeTrack(usize),
     DeletePlaylist,
     DialogCancel,
     DialogComplete,
@@ -781,8 +781,24 @@ impl cosmic::Application for AppModel {
                 }
             }
 
-            Message::ChangeTrack(id, index) => {
-                if self.library.from_id(&id).is_none() {
+            Message::ChangeTrack(index) => {
+                let Some(playlist_id) = self.view_playlist else {
+                    return Task::none();
+                };
+
+                let is_in_library = {
+                    let Ok(playlist) = self.playlist_service.get(playlist_id) else {
+                        return Task::none();
+                    };
+
+                    let Some(track) = playlist.tracks().get(index) else {
+                        return Task::none();
+                    };
+
+                    self.library.media.contains_key(&track.path)
+                };
+
+                if !is_in_library {
                     return Task::none();
                 }
 
@@ -791,15 +807,13 @@ impl cosmic::Application for AppModel {
                 if let Some(last) = self.list_last_clicked {
                     if is_double_click(last, DOUBLE_CLICK_THRESHOLD_MS) {
                         // Double-click: play track
-                        if let Some(playlist_id) = self.view_playlist {
-                            if let Ok(playlist) = self.playlist_service.get(playlist_id) {
-                                self.playback_service.start_session(
-                                    playlist,
-                                    index,
-                                    self.state.shuffle,
-                                );
-                                self.playback_service.play();
-                            }
+                        if let Ok(playlist) = self.playlist_service.get(playlist_id) {
+                            self.playback_service.start_session(
+                                playlist,
+                                index,
+                                self.state.shuffle,
+                            );
+                            self.playback_service.play();
                         }
                     }
                 }
@@ -1153,7 +1167,7 @@ impl cosmic::Application for AppModel {
                     Ok(playlist) => playlist
                         .tracks()
                         .iter()
-                        .filter_map(|t| t.metadata.id.clone().map(|id| (id, t.clone())))
+                        .map(|t| (t.instance_id(), t.clone()))
                         .collect::<HashMap<String, Track>>(),
                     Err(_) => return Task::none(),
                 };
@@ -2574,10 +2588,8 @@ impl AppModel {
                 .playback_service
                 .session()
                 .and_then(|session| {
-                    session.order.get(session.index).and_then(|playing_track| {
-                        let playing_id = playing_track.metadata.id.clone()?;
-                        let current_id = track.metadata.id.clone()?;
-                        Some(playing_id == current_id && playing_track.entry_id == track.entry_id)
+                    session.order.get(session.index).map(|playing_track| {
+                        playing_track.entry_id == track.entry_id && playing_track.path == track.path
                     })
                 })
                 .unwrap_or(false)
