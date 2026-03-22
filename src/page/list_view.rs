@@ -270,7 +270,7 @@ fn list_column_header<'a>(
 ) -> cosmic::Element<'a, Message> {
     let label = list_column_heading(column, track_number_label);
     let width = list_column_width(column, track_number_column_width);
-    println!("Header {:?} {:?}", label, width);
+
     match column.sort_by() {
         Some(sort_by) => create_sort_button(
             label,
