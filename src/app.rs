@@ -448,12 +448,10 @@ impl cosmic::Application for AppModel {
 
         let dialog = match dialog_page {
             DialogPage::NewPlaylist(name) => {
-                let complete_maybe = if name.is_empty() {
-                    None
-                } else if name.trim().is_empty() {
-                    None
-                } else {
+                let complete_maybe = if Self::playlist_name_is_valid(name) {
                     Some(Message::DialogComplete)
+                } else {
+                    None
                 };
 
                 let dialog = widget::dialog()
@@ -477,12 +475,10 @@ impl cosmic::Application for AppModel {
             }
 
             DialogPage::RenamePlaylist { id, name } => {
-                let complete_maybe = if name.is_empty() {
-                    None
-                } else if name.trim().is_empty() {
-                    None
-                } else {
+                let complete_maybe = if Self::playlist_name_is_valid(name) {
                     Some(Message::DialogComplete)
+                } else {
+                    None
                 };
 
                 let dialog = widget::dialog()
@@ -826,84 +822,106 @@ impl cosmic::Application for AppModel {
             }
 
             Message::DialogComplete => {
-                if let Some(dialog_page) = self.dialog_pages.pop_front() {
-                    match dialog_page {
-                        DialogPage::NewPlaylist(name) => {
-                            match self.playlist_service.create(name) {
-                                Ok(id) => {
-                                    self.view_playlist = Some(id);
+                let Some(dialog_page) = self.dialog_pages.front().cloned() else {
+                    return Task::none();
+                };
 
-                                    // Rebuild nav preserving order
-                                    let items = self.build_ordered_nav_items();
-                                    self.rebuild_nav_from_order(items, id);
-                                }
-                                Err(err) => {
-                                    eprintln!("Error creating playlist: {}", err);
-                                }
+                match &dialog_page {
+                    DialogPage::NewPlaylist(name) if !Self::playlist_name_is_valid(name) => {
+                        return Task::none();
+                    }
+                    DialogPage::RenamePlaylist { name, .. }
+                        if !Self::playlist_name_is_valid(name) =>
+                    {
+                        return Task::none();
+                    }
+                    DialogPage::ConfirmPlaylistDuplicate { .. } => {
+                        self.handle_playlist_duplicate_dialog_action(
+                            PlaylistDuplicateDialogAction::Add,
+                        );
+                        return Task::none();
+                    }
+                    _ => {}
+                }
+
+                let _ = self.dialog_pages.pop_front();
+
+                match dialog_page {
+                    DialogPage::NewPlaylist(name) => {
+                        match self.playlist_service.create(name) {
+                            Ok(id) => {
+                                self.view_playlist = Some(id);
+
+                                // Rebuild nav preserving order
+                                let items = self.build_ordered_nav_items();
+                                self.rebuild_nav_from_order(items, id);
+                            }
+                            Err(err) => {
+                                eprintln!("Error creating playlist: {}", err);
                             }
                         }
+                    }
 
-                        DialogPage::RenamePlaylist { id, name } => {
-                            match self.playlist_service.rename(id, name) {
-                                Ok(_) => {
-                                    self.view_playlist = Some(id);
+                    DialogPage::RenamePlaylist { id, name } => {
+                        match self.playlist_service.rename(id, name) {
+                            Ok(_) => {
+                                self.view_playlist = Some(id);
 
-                                    // Rebuild nav preserving order
-                                    let items = self.build_ordered_nav_items();
-                                    self.rebuild_nav_from_order(items, id);
-                                }
-                                Err(err) => {
-                                    eprintln!("Error renaming playlist: {}", err);
-                                }
+                                // Rebuild nav preserving order
+                                let items = self.build_ordered_nav_items();
+                                self.rebuild_nav_from_order(items, id);
+                            }
+                            Err(err) => {
+                                eprintln!("Error renaming playlist: {}", err);
                             }
                         }
+                    }
 
-                        DialogPage::DeletePlaylist(id) => {
-                            match self.playlist_service.delete(id) {
-                                Ok(_) => {
-                                    // Switch to library view
-                                    let library_id =
-                                        if let Ok(library) = self.playlist_service.get_library() {
-                                            library.id()
-                                        } else {
-                                            return Task::none();
-                                        };
+                    DialogPage::DeletePlaylist(id) => {
+                        match self.playlist_service.delete(id) {
+                            Ok(_) => {
+                                // Switch to library view
+                                let library_id =
+                                    if let Ok(library) = self.playlist_service.get_library() {
+                                        library.id()
+                                    } else {
+                                        return Task::none();
+                                    };
 
-                                    self.view_playlist = Some(library_id);
+                                self.view_playlist = Some(library_id);
 
-                                    // Rebuild nav preserving order
-                                    let items = self.build_ordered_nav_items();
-                                    self.rebuild_nav_from_order(items, library_id);
-                                }
-                                Err(err) => {
-                                    eprintln!("Error deleting playlist: {}", err);
-                                }
+                                // Rebuild nav preserving order
+                                let items = self.build_ordered_nav_items();
+                                self.rebuild_nav_from_order(items, library_id);
+                            }
+                            Err(err) => {
+                                eprintln!("Error deleting playlist: {}", err);
                             }
                         }
+                    }
 
-                        DialogPage::DeleteSelectedFromPlaylist => {
-                            let playlist_id = match self.view_playlist {
-                                Some(id) => id,
-                                None => return Task::none(),
-                            };
+                    DialogPage::DeleteSelectedFromPlaylist => {
+                        let playlist_id = match self.view_playlist {
+                            Some(id) => id,
+                            None => return Task::none(),
+                        };
 
-                            if let Err(err) = self.playlist_service.remove_selected(playlist_id) {
-                                eprintln!("Error removing tracks: {}", err);
-                            }
-
-                            // Reset viewport scroll to top
-                            self.list_start = 0;
-                            return scrollable::scroll_to(
-                                self.list_scroll_id.clone(),
-                                AbsoluteOffset {
-                                    x: Some(0.0 as f32),
-                                    y: Some(0.0 as f32),
-                                },
-                            );
+                        if let Err(err) = self.playlist_service.remove_selected(playlist_id) {
+                            eprintln!("Error removing tracks: {}", err);
                         }
 
-                        DialogPage::ConfirmPlaylistDuplicate { .. } => {}
-                    };
+                        // Reset viewport scroll to top
+                        self.list_start = 0;
+                        return scrollable::scroll_to(
+                            self.list_scroll_id.clone(),
+                            AbsoluteOffset {
+                                x: Some(0.0 as f32),
+                                y: Some(0.0 as f32),
+                            },
+                        );
+                    }
+
+                    DialogPage::ConfirmPlaylistDuplicate { .. } => {}
                 };
             }
 
@@ -1748,6 +1766,28 @@ impl AppModel {
                     .map(str::to_owned)
             })
             .unwrap_or_else(|| track.path.display().to_string())
+    }
+
+    fn playlist_name_is_valid(name: &str) -> bool {
+        !name.trim().is_empty()
+    }
+
+    fn dialog_primary_message(dialog_page: &DialogPage) -> Option<Message> {
+        match dialog_page {
+            DialogPage::NewPlaylist(name) if Self::playlist_name_is_valid(name) => {
+                Some(Message::DialogComplete)
+            }
+            DialogPage::RenamePlaylist { name, .. } if Self::playlist_name_is_valid(name) => {
+                Some(Message::DialogComplete)
+            }
+            DialogPage::DeletePlaylist(_) | DialogPage::DeleteSelectedFromPlaylist => {
+                Some(Message::DialogComplete)
+            }
+            DialogPage::ConfirmPlaylistDuplicate { .. } => Some(
+                Message::PlaylistDuplicateDialogAction(PlaylistDuplicateDialogAction::Add),
+            ),
+            _ => None,
+        }
     }
 
     fn update_or_close_playlist_duplicate_dialog(
@@ -2681,31 +2721,18 @@ impl AppModel {
             self.shift_pressed += 1;
         }
 
-        if self.dialog_pages.front().is_some() {
+        if let Some(dialog_page) = self.dialog_pages.front() {
             if key == Key::Named(Named::Escape) {
                 return Task::done(cosmic::Action::App(Message::DialogCancel));
             }
 
-            match self.dialog_pages.front().unwrap() {
-                DialogPage::NewPlaylist(name) => {
-                    if key == Key::Named(Named::Enter) && name.len() > 0 {
-                        return Task::done(cosmic::Action::App(Message::DialogComplete));
-                    }
+            if key == Key::Named(Named::Enter) {
+                if let Some(message) = Self::dialog_primary_message(dialog_page) {
+                    return Task::done(cosmic::Action::App(message));
                 }
-                DialogPage::RenamePlaylist { id, name } => {
-                    let _ = id;
-                    if key == Key::Named(Named::Enter) && name.len() > 0 {
-                        return Task::done(cosmic::Action::App(Message::DialogComplete));
-                    }
-                }
-                DialogPage::DeletePlaylist(_) => {}
-                DialogPage::DeleteSelectedFromPlaylist => {}
-                DialogPage::ConfirmPlaylistDuplicate { .. } => {}
             }
 
-            if key == Key::Named(Named::Enter) {
-                return Task::done(cosmic::Action::App(Message::DialogComplete));
-            }
+            return Task::none();
         }
 
         if matches!(self.view_mode, ViewMode::List) {
