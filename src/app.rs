@@ -347,6 +347,9 @@ impl cosmic::Application for AppModel {
             playlist_service: PlaylistService::new(Arc::new(app_xdg_dirs.clone())),
         };
 
+        // Apply persisted output state to the playback engine before any session starts.
+        app.sync_playback_output_from_state();
+
         // Create a startup command that sets the window title.
         let update_title = app.update_title();
 
@@ -687,7 +690,7 @@ impl cosmic::Application for AppModel {
                     None => {
                         self.state.$name = $value;
                         log::warn!(
-                            "failed to save state {:?}: no config handler",
+                            "failed to save state {:?}: no state (config) handler",
                             stringify!($name)
                         );
                     }
@@ -803,12 +806,17 @@ impl cosmic::Application for AppModel {
                 if let Some(last) = self.list_last_clicked {
                     if is_double_click(last, DOUBLE_CLICK_THRESHOLD_MS) {
                         // Double-click: play track
+                        let mut started = false;
                         if let Ok(playlist) = self.playlist_service.get(playlist_id) {
                             self.playback_service.start_session(
                                 playlist,
                                 index,
                                 self.state.shuffle,
                             );
+                            started = true;
+                        }
+                        if started {
+                            self.sync_playback_output_from_state();
                             self.playback_service.play();
                         }
                     }
@@ -1224,6 +1232,7 @@ impl cosmic::Application for AppModel {
                     PlaybackStatus::Stopped => {
                         // Start playback from current view
                         if let Some(playlist_id) = self.view_playlist {
+                            let mut started = false;
                             if let Ok(playlist) = self.playlist_service.get(playlist_id) {
                                 // Pick random starting index if shuffle is enabled
                                 let start_index =
@@ -1239,6 +1248,11 @@ impl cosmic::Application for AppModel {
                                     start_index,
                                     self.state.shuffle,
                                 );
+                                started = true;
+                            }
+
+                            if started {
+                                self.sync_playback_output_from_state();
                                 self.playback_service.play();
                             }
                         }
@@ -1332,8 +1346,12 @@ impl cosmic::Application for AppModel {
             }
 
             Message::SetVolume(volume) => {
+                let volume = volume.clamp(0, 100);
                 state_set!(volume, volume);
-                self.playback_service.set_volume(volume as f64 / 100.0);
+                self.playback_service
+                    .set_volume(Self::normalized_volume(volume));
+                let muted = false;
+                state_set!(muted, muted);
             }
 
             Message::SliderSeek(time) => {
@@ -1407,9 +1425,12 @@ impl cosmic::Application for AppModel {
                             self.playback_service.seek(pos_us as f32 / 1_000_000.0);
                         }
                         MprisCommand::SetVolume(vol) => {
-                            let volume = (vol * 100.0).clamp(0.0, 100.0) as i32;
+                            let output_volume = vol.clamp(0.0, 1.0);
+                            let volume = (output_volume * 100.0).clamp(0.0, 100.0) as i32;
                             state_set!(volume, volume);
-                            self.playback_service.set_volume(vol);
+                            self.playback_service.set_volume(output_volume);
+                            let muted = false;
+                            state_set!(muted, muted);
                         }
                         MprisCommand::SetLoopStatus(status) => match status.as_str() {
                             "None" => {
@@ -1533,12 +1554,11 @@ impl cosmic::Application for AppModel {
 
             Message::ToggleMute => {
                 let muted = !self.state.muted;
-                if muted {
-                    self.playback_service.set_volume(0.0);
+                self.playback_service.set_volume(if muted {
+                    0.0
                 } else {
-                    self.playback_service
-                        .set_volume(self.state.volume as f64 / 100.0);
-                }
+                    Self::normalized_volume(self.state.volume)
+                });
                 state_set!(muted, muted);
             }
 
@@ -1627,13 +1647,17 @@ impl cosmic::Application for AppModel {
             Message::VolumeDown => {
                 let volume = (self.state.volume as f32 - 10.0).clamp(0.0, 100.0) as i32;
                 state_set!(volume, volume);
-                self.playback_service.set_volume(volume as f64 / 100.0);
+                self.playback_service
+                    .set_volume(Self::normalized_volume(volume));
+                let muted = false;
+                state_set!(muted, muted);
             }
 
             Message::VolumeUp => {
                 let volume = (self.state.volume as f32 + 10.0).clamp(0.0, 100.0) as i32;
                 state_set!(volume, volume);
-                self.playback_service.set_volume(volume as f64 / 100.0);
+                self.playback_service
+                    .set_volume(Self::normalized_volume(volume));
                 let muted = false;
                 state_set!(muted, muted);
             }
@@ -2282,7 +2306,7 @@ impl AppModel {
             (true, RepeatMode::One) => "Track".to_string(),
             (true, RepeatMode::All) => "Playlist".to_string(),
         };
-        state.volume = self.state.volume as f64 / 100.0;
+        state.volume = self.effective_output_volume();
         state.position = (self.playback_service.progress() * 1_000_000.0) as i64;
 
         // Build metadata
@@ -2412,6 +2436,7 @@ impl AppModel {
 
                     self.playback_service
                         .start_session(playlist, start_index, self.state.shuffle);
+                    self.sync_playback_output_from_state();
                 }
             }
         }
@@ -2764,6 +2789,24 @@ impl AppModel {
         }
 
         Task::none()
+    }
+
+    fn normalized_volume(volume: i32) -> f64 {
+        (volume as f64 / 100.0).clamp(0.0, 1.0)
+    }
+
+    fn effective_output_volume(&self) -> f64 {
+        if self.state.muted {
+            0.0
+        } else {
+            Self::normalized_volume(self.state.volume)
+        }
+    }
+
+    fn sync_playback_output_from_state(&mut self) {
+        self.playback_service
+            .set_volume(self.effective_output_volume());
+        self.update_mpris();
     }
 }
 
