@@ -1449,6 +1449,7 @@ impl cosmic::Application for AppModel {
                         MprisCommand::SetShuffle(shuffle) => {
                             state_set!(shuffle, shuffle);
                             // update session shuffle as in ToggleShuffle handler
+                            self.sync_shuffle_state_to_session(shuffle);
                         }
                     }
 
@@ -1587,13 +1588,8 @@ impl cosmic::Application for AppModel {
                 state_set!(shuffle, shuffle);
 
                 // Update current session with new shuffle setting
-                if let Some(session) = self.playback_service.session() {
-                    let playlist_id = session.playlist_id;
-                    if let Ok(playlist) = self.playlist_service.get(playlist_id) {
-                        self.playback_service
-                            .update_session_shuffle(playlist, shuffle);
-                    }
-                }
+                self.sync_shuffle_state_to_session(shuffle);
+                self.update_mpris();
             }
 
             Message::UpdateConfig(config) => {
@@ -2789,6 +2785,16 @@ impl AppModel {
         }
 
         Task::none()
+    }
+
+    fn sync_shuffle_state_to_session(&mut self, shuffle: bool) {
+        if let Some(session) = self.playback_service.session() {
+            let playlist_id = session.playlist_id;
+            if let Ok(playlist) = self.playlist_service.get(playlist_id) {
+                self.playback_service
+                    .update_session_shuffle(playlist, shuffle);
+            }
+        }
     }
 
     fn normalized_volume(volume: i32) -> f64 {
