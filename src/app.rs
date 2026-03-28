@@ -136,6 +136,7 @@ pub struct AppModel {
 
     mpris_state: Arc<Mutex<MprisState>>,
     mpris_connection: Option<zbus::Connection>,
+    mpris_connection_rx: Option<std::sync::mpsc::Receiver<Result<zbus::Connection, String>>>,
 }
 
 /// Messages emitted by the application and its widgets.
@@ -261,32 +262,11 @@ impl cosmic::Application for AppModel {
         let (conn_tx, conn_rx) = std::sync::mpsc::sync_channel(1);
 
         tokio::spawn(async move {
-            let connection = zbus::Connection::session().await.unwrap();
-            connection
-                .object_server()
-                .at("/org/mpris/MediaPlayer2", MediaPlayer2)
-                .await
-                .unwrap();
-            connection
-                .object_server()
-                .at(
-                    "/org/mpris/MediaPlayer2",
-                    MediaPlayer2Player {
-                        tx: mpris_tx,
-                        state: mpris_state_clone,
-                    },
-                )
-                .await
-                .unwrap();
-            connection
-                .request_name("org.mpris.MediaPlayer2.ethereal-waves")
-                .await
-                .unwrap();
-            let _ = conn_tx.send(connection.clone());
-            futures::future::pending::<()>().await;
+            let result = AppModel::init_mpris_connection(mpris_tx, mpris_state_clone).await;
+            let _ = conn_tx.send(result);
         });
 
-        let mpris_connection = conn_rx.recv().ok();
+        let mpris_connection = None;
 
         let app_xdg_dirs = xdg::BaseDirectories::with_prefix("ethereal-waves");
 
@@ -323,6 +303,7 @@ impl cosmic::Application for AppModel {
             playback_service: PlaybackService::new(mpris_rx),
             mpris_state,
             mpris_connection,
+            mpris_connection_rx: Some(conn_rx),
             initial_load_complete: false,
             library: Library::new(),
             is_updating: false,
@@ -1366,6 +1347,7 @@ impl cosmic::Application for AppModel {
             }
 
             Message::Tick => {
+                self.poll_mpris_connection_ready();
                 self.playback_service.validate_session();
 
                 // Process playback events
@@ -1753,6 +1735,66 @@ impl cosmic::Application for AppModel {
 }
 
 impl AppModel {
+    /// Initializes the MPRIS connection and registers the MediaPlayer2 interfaces.
+    async fn init_mpris_connection(
+        mpris_tx: tokio::sync::mpsc::UnboundedSender<MprisCommand>,
+        mpris_state: Arc<Mutex<MprisState>>,
+    ) -> Result<zbus::Connection, String> {
+        let connection = zbus::Connection::session()
+            .await
+            .map_err(|err| format!("failed to connect to the session bus: {err}"))?;
+
+        connection
+            .object_server()
+            .at("/org/mpris/MediaPlayer2", MediaPlayer2)
+            .await
+            .map_err(|err| format!("failed to register MediaPlayer2 interface: {err}"))?;
+
+        connection
+            .object_server()
+            .at(
+                "/org/mpris/MediaPlayer2",
+                MediaPlayer2Player {
+                    tx: mpris_tx,
+                    state: mpris_state,
+                },
+            )
+            .await
+            .map_err(|err| format!("failed to register MediaPlayer2Player interface: {err}"))?;
+
+        connection
+            .request_name("org.mpris.MediaPlayer2.ethereal-waves")
+            .await
+            .map_err(|err| format!("failed to acquire the MPRIS bus name: {err}"))?;
+
+        Ok(connection)
+    }
+
+    /// Polls for the MPRIS connection to be ready and updates the model accordingly.
+    fn poll_mpris_connection_ready(&mut self) {
+        let recv_result = match self.mpris_connection_rx.as_ref() {
+            Some(receiver) => receiver.try_recv(),
+            None => return,
+        };
+
+        match recv_result {
+            Ok(Ok(connection)) => {
+                self.mpris_connection = Some(connection);
+                self.mpris_connection_rx = None;
+                self.update_mpris();
+            }
+            Ok(Err(err)) => {
+                log::warn!("MPRIS disabled: {}", err);
+                self.mpris_connection_rx = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                log::warn!("MPRIS initialization task ended before reporting a connection");
+                self.mpris_connection_rx = None;
+            }
+        }
+    }
+
     /// Updates the header and window titles.
     pub fn update_title(&mut self) -> Task<cosmic::Action<Message>> {
         let mut window_title = fl!("app-title");
@@ -2293,7 +2335,10 @@ impl AppModel {
         let Some(conn) = &self.mpris_connection else {
             return;
         };
-        let mut state = self.mpris_state.lock().unwrap();
+        let Ok(mut state) = self.mpris_state.lock() else {
+            log::warn!("failed to lock MPRIS state for update");
+            return;
+        };
 
         state.playback_status = self.playback_service.status();
         state.shuffle = self.state.shuffle;
