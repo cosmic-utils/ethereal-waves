@@ -1017,25 +1017,35 @@ impl cosmic::Application for AppModel {
                 let row_stride =
                     calculate_row_stride(self.size_multiplier, BASE_ROW_HEIGHT, DIVIDER_HEIGHT);
 
-                // Update scroll position
-                if scroll_offset == 0.0 || row_stride == 0.0 {
-                    self.list_start = 0;
+                let requested_list_start = if scroll_offset == 0.0 || row_stride == 0.0 {
+                    0
                 } else {
-                    self.list_start = (scroll_offset / row_stride).floor() as usize;
-                }
+                    (scroll_offset / row_stride).floor() as usize
+                };
 
                 // Update visible row count
-                self.list_visible_row_count = (viewport_height / row_stride).ceil() as usize;
+                self.list_visible_row_count = if row_stride == 0.0 {
+                    0
+                } else {
+                    (viewport_height / row_stride).ceil() as usize
+                };
 
-                // Clamp to valid range
-                let tracks_len = self
-                    .view_playlist
-                    .and_then(|id| self.playlist_service.get(id).ok())
-                    .map(|p| p.len())
-                    .unwrap_or(0);
+                // Clamp to the filtered track count so the scroll state matches the rendered list.
+                let visible_track_count = self.visible_track_count();
+                let max_start =
+                    Self::max_list_start(visible_track_count, self.list_visible_row_count);
+                let clamped_list_start = requested_list_start.min(max_start);
+                self.list_start = clamped_list_start;
 
-                let max_start = tracks_len.saturating_sub(self.list_visible_row_count);
-                self.list_start = self.list_start.min(max_start);
+                if row_stride > 0.0 && clamped_list_start != requested_list_start {
+                    return scrollable::scroll_to(
+                        self.list_scroll_id.clone(),
+                        AbsoluteOffset {
+                            x: Some(0.0),
+                            y: Some(clamped_list_start as f32 * row_stride),
+                        },
+                    );
+                }
             }
 
             Message::ListViewSort(new_sort_by) => {
@@ -2591,41 +2601,19 @@ impl AppModel {
 
     pub fn calculate_list_view(&self) -> Option<ListViewModel> {
         let active_playlist = self.playlist_service.get(self.view_playlist?).ok()?;
+        let normalized_search = self.search_term.as_ref().map(|term| term.to_lowercase());
 
-        let search = self.search_term.as_deref().unwrap_or("").to_lowercase();
+        let visible_tracks: Vec<(usize, Track)> = active_playlist
+            .tracks()
+            .iter()
+            .cloned()
+            .enumerate()
+            .filter(|(_, track)| Self::track_matches_search(track, normalized_search.as_deref()))
+            .collect();
 
-        let visible_tracks: Vec<(usize, Track)> = if self.search_term.is_some() {
-            active_playlist
-                .tracks()
-                .iter()
-                .cloned()
-                .enumerate()
-                .filter(|(_, t)| {
-                    let path = t.path.to_string_lossy();
-                    [
-                        t.metadata.title.as_deref(),
-                        t.metadata.album.as_deref(),
-                        t.metadata.artist.as_deref(),
-                        t.metadata.album_artist.as_deref(),
-                        t.metadata.genre.as_deref(),
-                        Some(path.as_ref()),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .any(|v| v.to_lowercase().contains(&search))
-                })
-                .collect()
-        } else {
-            active_playlist
-                .tracks()
-                .iter()
-                .cloned()
-                .enumerate()
-                .collect()
-        };
-
-        let mut list_start = self.list_start;
         let tracks_len = visible_tracks.len();
+        let max_start = Self::max_list_start(tracks_len, self.list_visible_row_count);
+        let list_start = self.list_start.min(max_start);
 
         let row_height = self.size_multiplier * BASE_ROW_HEIGHT;
 
@@ -2633,10 +2621,6 @@ impl AppModel {
             calculate_row_stride(self.size_multiplier, BASE_ROW_HEIGHT, DIVIDER_HEIGHT);
 
         let list_end = (list_start + self.list_visible_row_count + 1).min(tracks_len);
-
-        if list_start >= list_end {
-            list_start = 0;
-        }
 
         let take = list_end.saturating_sub(list_start);
         let chars = tracks_len.to_string().len() as f32;
@@ -2858,6 +2842,46 @@ impl AppModel {
         self.playback_service
             .set_volume(self.effective_output_volume());
         self.update_mpris();
+    }
+
+    fn track_matches_search(track: &Track, normalized_search: Option<&str>) -> bool {
+        let Some(search) = normalized_search else {
+            return true;
+        };
+
+        let path = track.path.to_string_lossy();
+        [
+            track.metadata.title.as_deref(),
+            track.metadata.album.as_deref(),
+            track.metadata.artist.as_deref(),
+            track.metadata.album_artist.as_deref(),
+            track.metadata.genre.as_deref(),
+            Some(path.as_ref()),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|value| value.to_lowercase().contains(search))
+    }
+
+    fn visible_track_count(&self) -> usize {
+        let Some(playlist_id) = self.view_playlist else {
+            return 0;
+        };
+
+        let Ok(active_playlist) = self.playlist_service.get(playlist_id) else {
+            return 0;
+        };
+
+        let normalized_search = self.search_term.as_ref().map(|term| term.to_lowercase());
+        active_playlist
+            .tracks()
+            .iter()
+            .filter(|track| Self::track_matches_search(track, normalized_search.as_deref()))
+            .count()
+    }
+
+    fn max_list_start(track_count: usize, visible_row_count: usize) -> usize {
+        track_count.saturating_sub(visible_row_count.max(1))
     }
 }
 
