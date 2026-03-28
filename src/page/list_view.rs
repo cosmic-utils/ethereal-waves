@@ -11,6 +11,7 @@ use cosmic::{
     iced_core::widget::Tree,
     theme, widget,
 };
+use std::sync::Arc;
 
 pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
     let cosmic_theme::Spacing {
@@ -32,15 +33,17 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
         .filter(|column| column.is_visible(&app.config))
         .collect();
 
+    let Some(active_playlist) = app
+        .view_playlist
+        .and_then(|playlist_id| app.playlist_service.get(playlist_id).ok())
+    else {
+        return widget::column();
+    };
+    let active_tracks = active_playlist.tracks();
+
     let track_number_label = fl!("track-number-short");
-    let max_track_number_chars = view_model
-        .visible_tracks
-        .iter()
-        .filter_map(|(_, track)| track.metadata.track_number)
-        .max()
-        .map(|track_number| track_number.to_string().len())
-        .unwrap_or(0);
-    let track_number_column_width = max_track_number_chars
+    let track_number_column_width = view_model
+        .max_track_number_chars
         .max(track_number_label.chars().count())
         .max(2) as f32
         * 11.0
@@ -79,24 +82,13 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
 
     let mut count: u32 = view_model.list_start as u32 + 1;
 
-    let selected_track_ids: Vec<String> = view_model
-        .visible_tracks
-        .iter()
-        .filter(|(_, t)| t.selected)
-        .map(|(_, t)| t.instance_id())
-        .collect();
-
+    let selected_track_ids = Arc::clone(&view_model.selected_track_ids);
     let selected_count = selected_track_ids.len();
 
-    for (index, track) in view_model
-        .visible_tracks
-        .iter()
-        .skip(view_model.list_start)
-        .take(view_model.take)
-        .enumerate()
-    {
-        let track_id = track.1.instance_id();
-        let is_playing_track = app.is_track_playing(&track.1, &view_model);
+    for (index, playlist_index) in view_model.visible_track_indices.iter().copied().enumerate() {
+        let track = &active_tracks[playlist_index];
+        let track_id = track.instance_id();
+        let is_playing_track = app.is_track_playing(track, &view_model);
 
         let mut row_element = widget::row()
             .spacing(space_xxs)
@@ -114,7 +106,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
                 .height(view_model.row_height),
             );
         } else {
-            let is_in_library = app.library.media.contains_key(&track.1.path);
+            let is_in_library = app.library.media.contains_key(&track.path);
 
             if !is_in_library {
                 // Track is not in library, show indicator
@@ -151,7 +143,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
 
         for column in &visible_columns {
             row_element = row_element.push(list_column_cell(
-                &track.1,
+                track,
                 &view_model,
                 *column,
                 track_number_column_width,
@@ -161,14 +153,15 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
         row_element = row_element.width(Length::Fill);
 
         let row_button = widget::button::custom(row_element)
-            .class(button_style(track.1.selected, false))
-            .on_press_down(Message::ChangeTrack(track.0))
+            .class(button_style(track.selected, false))
+            .on_press_down(Message::ChangeTrack(playlist_index))
             .padding(0)
             .width(Length::Fill);
 
-        let row_mouse = widget::mouse_area(row_button).on_release(Message::ListSelectRow(track.0));
+        let row_mouse =
+            widget::mouse_area(row_button).on_release(Message::ListSelectRow(playlist_index));
 
-        let drag_count = if track.1.selected && selected_count > 0 {
+        let drag_count = if track.selected && selected_count > 0 {
             selected_count
         } else {
             1
@@ -182,21 +175,21 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
 
         // If user drags an unselected row, select it when drag begins.
         // If they drag a selected row, preserve multi-selection.
-        let on_start = if track.1.selected {
+        let on_start = if track.selected {
             None
         } else {
-            Some(Message::ListSelectRow(track.0))
+            Some(Message::ListSelectRow(playlist_index))
         };
 
         // Drag all selected row ids or just the current row id
-        let drag_ids: Vec<String> = if track.1.selected && !selected_track_ids.is_empty() {
-            selected_track_ids.clone()
+        let drag_ids = if track.selected && selected_count > 0 {
+            Arc::clone(&selected_track_ids)
         } else {
-            vec![track_id.clone()]
+            Arc::new(vec![track_id.clone()])
         };
 
         let draggable_row = widget::dnd_source::DndSource::new(row_mouse)
-            .drag_content(move || TrackDropData::new(drag_ids.clone()))
+            .drag_content(move || TrackDropData::new((*drag_ids).clone()))
             .action(DndAction::Copy)
             .on_start(on_start)
             .drag_icon(move |_offset| {
@@ -221,7 +214,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
 
         rows = rows.push(draggable_row);
 
-        let visible_count = view_model.list_end.saturating_sub(view_model.list_start);
+        let visible_count = view_model.visible_track_indices.len();
         let is_last_visible = index + 1 == visible_count;
         if !is_last_visible {
             rows = rows.push(

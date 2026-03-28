@@ -2601,18 +2601,26 @@ impl AppModel {
 
     pub fn calculate_list_view(&self) -> Option<ListViewModel> {
         let active_playlist = self.playlist_service.get(self.view_playlist?).ok()?;
+        let tracks = active_playlist.tracks();
         let normalized_search = self.search_term.as_ref().map(|term| term.to_lowercase());
 
-        let visible_tracks: Vec<(usize, Track)> = active_playlist
-            .tracks()
-            .iter()
-            .cloned()
-            .enumerate()
-            .filter(|(_, track)| Self::track_matches_search(track, normalized_search.as_deref()))
-            .collect();
+        let mut filtered_track_count = 0usize;
+        let mut max_track_number_chars = 0usize;
+        let mut selected_track_ids = Vec::new();
 
-        let tracks_len = visible_tracks.len();
-        let max_start = Self::max_list_start(tracks_len, self.list_visible_row_count);
+        for track in tracks.iter() {
+            if Self::track_matches_search(track, normalized_search.as_deref()) {
+                filtered_track_count += 1;
+                max_track_number_chars =
+                    max_track_number_chars.max(Self::track_number_chars(track));
+
+                if track.selected {
+                    selected_track_ids.push(track.instance_id());
+                }
+            }
+        }
+
+        let max_start = Self::max_list_start(filtered_track_count, self.list_visible_row_count);
         let list_start = self.list_start.min(max_start);
 
         let row_height = self.size_multiplier * BASE_ROW_HEIGHT;
@@ -2620,13 +2628,31 @@ impl AppModel {
         let row_stride =
             calculate_row_stride(self.size_multiplier, BASE_ROW_HEIGHT, DIVIDER_HEIGHT);
 
-        let list_end = (list_start + self.list_visible_row_count + 1).min(tracks_len);
+        let list_end = (list_start + self.list_visible_row_count + 1).min(filtered_track_count);
 
-        let take = list_end.saturating_sub(list_start);
-        let chars = tracks_len.to_string().len() as f32;
+        let mut visible_track_indices = Vec::with_capacity(list_end.saturating_sub(list_start));
+        if normalized_search.is_none() {
+            visible_track_indices.extend(list_start..list_end);
+        } else if list_start < list_end {
+            let mut filtered_index = 0usize;
+            for (index, track) in tracks.iter().enumerate() {
+                if Self::track_matches_search(track, normalized_search.as_deref()) {
+                    if filtered_index >= list_start {
+                        visible_track_indices.push(index);
+                    }
+
+                    filtered_index += 1;
+                    if filtered_index >= list_end {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let chars = filtered_track_count.to_string().len() as f32;
         let number_column_width = chars * 11.0;
         let icon_column_width = 24.0;
-        let viewport_height = tracks_len as f32 * row_stride;
+        let viewport_height = filtered_track_count as f32 * row_stride;
 
         let is_playing_playlist = self
             .playback_service
@@ -2655,10 +2681,10 @@ impl AppModel {
         let scroll_offset = list_start as f32 * row_stride;
 
         Some(ListViewModel {
-            visible_tracks,
+            visible_track_indices,
+            selected_track_ids: Arc::new(selected_track_ids),
+            max_track_number_chars,
             list_start,
-            list_end,
-            take,
             number_column_width,
             icon_column_width,
             row_stride,
@@ -2861,6 +2887,14 @@ impl AppModel {
         .into_iter()
         .flatten()
         .any(|value| value.to_lowercase().contains(search))
+    }
+
+    fn track_number_chars(track: &Track) -> usize {
+        track
+            .metadata
+            .track_number
+            .map(|track_number| track_number.to_string().len())
+            .unwrap_or(0)
     }
 
     fn visible_track_count(&self) -> usize {
@@ -3153,10 +3187,10 @@ fn list_column_settings_control<'a>(
 }
 
 pub struct ListViewModel {
-    pub visible_tracks: Vec<(usize, Track)>,
+    pub visible_track_indices: Vec<usize>,
+    pub selected_track_ids: Arc<Vec<String>>,
+    pub max_track_number_chars: usize,
     pub list_start: usize,
-    pub list_end: usize,
-    pub take: usize,
     pub number_column_width: f32,
     pub icon_column_width: f32,
     pub row_stride: f32,
