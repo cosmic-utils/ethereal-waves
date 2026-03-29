@@ -2413,22 +2413,15 @@ impl AppModel {
             }
 
             // Album art URL
-            if let Some(id) = &now_playing.id {
-                // Try to find artwork file using the track ID
-                let artwork_filename = format!("{}.jpg", id);
-                let base_dirs = xdg::BaseDirectories::with_prefix("ethereal-waves");
-
-                if let Some(artwork_path) =
-                    base_dirs.find_cache_file(format!("artwork/{}", artwork_filename))
+            if let Some(artwork_filename) = &now_playing.artwork_filename {
+                if let Some(artwork_path) = self
+                    .app_xdg_dirs
+                    .find_cache_file(format!("{}/{}", ARTWORK_DIR, artwork_filename))
                 {
-                    if artwork_path.exists() {
+                    if let Ok(art_url) = url::Url::from_file_path(&artwork_path) {
                         meta.insert(
                             "mpris:artUrl".to_string(),
-                            zbus::zvariant::Value::new(format!(
-                                "file://{}",
-                                artwork_path.to_string_lossy()
-                            ))
-                            .into(),
+                            zbus::zvariant::Value::new(art_url.to_string()).into(),
                         );
                     }
                 }
