@@ -151,7 +151,7 @@ pub enum Message {
     DeletePlaylist,
     DialogCancel,
     DialogComplete,
-    KeyPressed(Modifiers, Key),
+    KeyPressed(Modifiers, Key, event::Status),
     KeyReleased(Key),
     LaunchUrl(String),
     LibraryPathOpenError(Arc<file_chooser::Error>),
@@ -591,9 +591,9 @@ impl cosmic::Application for AppModel {
     fn subscription(&self) -> Subscription<Self::Message> {
         // Add subscriptions which are always active.
         let mut subscriptions = vec![
-            event::listen_with(|event, _status, _window_id| match event {
+            event::listen_with(|event, status, _window_id| match event {
                 Event::Keyboard(KeyEvent::KeyPressed { key, modifiers, .. }) => {
-                    Some(Message::KeyPressed(modifiers, key))
+                    Some(Message::KeyPressed(modifiers, key, status))
                 }
                 Event::Keyboard(KeyEvent::KeyReleased { key, .. }) => {
                     Some(Message::KeyReleased(key))
@@ -914,8 +914,8 @@ impl cosmic::Application for AppModel {
                 };
             }
 
-            Message::KeyPressed(modifiers, key) => {
-                return self.handle_key_pressed(modifiers, key);
+            Message::KeyPressed(modifiers, key, status) => {
+                return self.handle_key_pressed(modifiers, key, status);
             }
 
             Message::KeyReleased(key) => {
@@ -2780,13 +2780,20 @@ impl AppModel {
         }
     }
 
-    fn handle_key_pressed(&mut self, modifiers: Modifiers, key: Key) -> Task<Action<Message>> {
-        // Check key bindings first
-        for (key_bind, action) in self.key_binds.iter() {
-            if key_bind.matches(modifiers, &key) {
-                // Don't call self.update() - return a task that processes the message
-                let message = action.message();
-                return Task::done(cosmic::Action::App(message));
+    fn handle_key_pressed(
+        &mut self,
+        modifiers: Modifiers,
+        key: Key,
+        status: event::Status,
+    ) -> Task<Action<Message>> {
+        // Only run app-wide keybinds if no widget already consumed the key (it was ignored)
+        if status == event::Status::Ignored {
+            for (key_bind, action) in self.key_binds.iter() {
+                if key_bind.matches(modifiers, &key) {
+                    // Don't call self.update() - return a task that processes the message
+                    let message = action.message();
+                    return Task::done(cosmic::Action::App(message));
+                }
             }
         }
 
