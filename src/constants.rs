@@ -9,6 +9,18 @@ pub const ZOOM_STEP: f32 = 2.0;
 pub const FOOTER_CONDENSED_BREAKPOINT: f32 = 700.0;
 pub const COMPACT_COLUMN_WIDTH: f32 = 96.0;
 pub const DURATION_COLUMN_WIDTH: f32 = 104.0;
+pub const GRID_ARTWORK_SCALE: f32 = 12.0;
+pub const GRID_MIN_ARTWORK_SIZE: f32 = 56.0;
+pub const GRID_MAX_ARTWORK_SIZE: f32 = 256.0;
+pub const GRID_CARD_PADDING: f32 = 12.0;
+pub const GRID_VIEW_PADDING: f32 = 12.0;
+pub const GRID_ITEM_SPACING: f32 = 12.0;
+pub const GRID_TITLE_HEIGHT: f32 = 38.0;
+pub const GRID_SUBTITLE_HEIGHT: f32 = 20.0;
+pub const GRID_INFO_HEIGHT: f32 = 18.0;
+pub const GRID_CARD_CONTENT_SPACING: f32 = 4.0;
+pub const GRID_STATUS_ICON_SIZE: u16 = 14;
+pub const GRID_STATUS_ICON_SLOT: f32 = 16.0;
 
 /// UI Display Constants
 pub const TRACK_INFO_LIST_TOTAL: usize = 10;

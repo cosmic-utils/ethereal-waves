@@ -88,7 +88,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
     for (index, playlist_index) in view_model.visible_track_indices.iter().copied().enumerate() {
         let track = &active_tracks[playlist_index];
         let track_id = track.instance_id();
-        let is_playing_track = app.is_track_playing(track, &view_model);
+        let is_playing_track = app.is_track_playing(track, view_model.is_playing_playlist);
 
         let mut row_element = widget::row()
             .spacing(space_xxs)

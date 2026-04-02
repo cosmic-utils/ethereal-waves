@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
-use crate::app::{AppModel, SortBy, SortDirection};
+use crate::app::{AppModel, SortBy, SortDirection, ViewMode};
 use crate::playback_state::RepeatMode;
 use cosmic::{
     Application,
@@ -166,6 +166,7 @@ pub struct Config {
     pub list_column_order: Vec<ListColumn>,
     pub title_sort: TitleSortMode,
     pub playlist_duplicate_policy: PlaylistDuplicatePolicy,
+    pub view_mode: ViewMode,
 }
 
 impl Config {
@@ -214,6 +215,7 @@ impl Default for Config {
             list_column_order: ListColumn::default_order(),
             title_sort: TitleSortMode::Alphabetical,
             playlist_duplicate_policy: PlaylistDuplicatePolicy::Allow,
+            view_mode: ViewMode::List,
         }
     }
 }

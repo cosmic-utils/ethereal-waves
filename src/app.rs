@@ -10,7 +10,7 @@ use crate::image_store::ImageStore;
 use crate::key_bind::key_binds;
 use crate::library::Library;
 use crate::mpris::{MediaPlayer2, MediaPlayer2Player, MprisCommand, MprisState};
-use crate::page::{empty_library, list_view, loading};
+use crate::page::{empty_library, grid_view, list_view, loading};
 use crate::playback_state::{PlaybackStatus, RepeatMode};
 use crate::playlist::{Playlist, Track};
 use crate::services::library_service::{LibraryProgress, LibraryService};
@@ -38,7 +38,7 @@ use cosmic::{
     iced_widget::scrollable::{self, AbsoluteOffset},
     surface, theme,
     widget::{
-        self, Column,
+        self,
         about::About,
         menu::{self, Action as WidgetMenuAction},
         nav_bar, row, settings, text, toggler,
@@ -87,6 +87,7 @@ pub struct AppModel {
     /// Settings page / app theme dropdown labels
     app_theme_labels: Vec<String>,
     title_sort_labels: Vec<String>,
+    view_mode_labels: Vec<String>,
     playlist_duplicate_policy_lables: Vec<String>,
 
     pub is_condensed: bool,
@@ -113,12 +114,11 @@ pub struct AppModel {
 
     dialog_pages: DialogPages,
 
-    view_mode: ViewMode,
-
     size_multiplier: f32,
     pub list_scroll_id: widget::Id,
     pub list_start: usize,
     pub list_visible_row_count: usize,
+    grid_start: usize,
     list_last_clicked: Option<Instant>,
     list_last_selected_id: Option<usize>,
 
@@ -156,6 +156,7 @@ pub enum Message {
     LaunchUrl(String),
     LibraryPathOpenError(Arc<file_chooser::Error>),
     LibraryProgress(LibraryProgress),
+    GridViewScroll(scrollable::Viewport),
     ListSelectRow(usize),
     ListViewScroll(scrollable::Viewport),
     ListViewSort(SortBy),
@@ -180,6 +181,7 @@ pub enum Message {
     SearchClear,
     SearchInput(String),
     SelectAll,
+    SetViewMode(ViewMode),
     SelectedPaths(Vec<String>),
     SetVolume(i32),
     SliderSeek(f32),
@@ -292,6 +294,7 @@ impl cosmic::Application for AppModel {
                 .unwrap_or_default(),
             app_theme_labels: vec![fl!("match-desktop"), fl!("dark"), fl!("light")],
             title_sort_labels: vec![fl!("alphabetical"), fl!("track-number")],
+            view_mode_labels: vec![fl!("list-view"), fl!("grid-view")],
             playlist_duplicate_policy_lables: vec![fl!("allow"), fl!("disallow"), fl!("ask")],
             is_condensed: false,
             config_handler: _flags.config_handler,
@@ -312,11 +315,11 @@ impl cosmic::Application for AppModel {
             update_percent: 0.0,
             update_progress_display: "0".into(),
             dialog_pages: DialogPages::new(),
-            view_mode: ViewMode::List,
             size_multiplier: _flags.state.size_multiplier,
             list_scroll_id: widget::Id::unique(),
             list_start: 0,
             list_visible_row_count: 0,
+            grid_start: 0,
             list_last_clicked: None,
             list_last_selected_id: None,
             control_pressed: 0,
@@ -411,10 +414,13 @@ impl cosmic::Application for AppModel {
 
         let playlist = self.playlist_service.get(self.view_playlist.unwrap()).ok();
 
-        let content: Column<_> = match playlist {
-            Some(p) if p.is_library() && p.tracks().is_empty() => empty_library::content(),
-            Some(_) => list_view::content(self),
-            None => empty_library::content(),
+        let content: Element<_> = match playlist {
+            Some(p) if p.is_library() && p.tracks().is_empty() => empty_library::content().into(),
+            Some(_) => match self.config.view_mode {
+                ViewMode::List => list_view::content(self).into(),
+                ViewMode::Grid => grid_view::content(self),
+            },
+            None => empty_library::content().into(),
         };
 
         widget::container(widget::column().push(content))
@@ -901,6 +907,7 @@ impl cosmic::Application for AppModel {
 
                         // Reset viewport scroll to top
                         self.list_start = 0;
+                        self.grid_start = 0;
                         return scrollable::scroll_to(
                             self.list_scroll_id.clone(),
                             AbsoluteOffset {
@@ -972,6 +979,37 @@ impl cosmic::Application for AppModel {
                     log::info!("Library update cancelled")
                 }
             },
+
+            Message::GridViewScroll(viewport) => {
+                let scroll_offset = viewport.absolute_offset().y;
+                let viewport_height = viewport.bounds().height;
+                let viewport_width = viewport.bounds().width;
+                let row_stride = self.grid_row_stride();
+
+                let requested_grid_start = if scroll_offset == 0.0 || row_stride == 0.0 {
+                    0
+                } else {
+                    (scroll_offset / row_stride).floor() as usize
+                };
+
+                let visible_row_count = self.grid_visible_row_count(viewport_height);
+                let visible_track_count = self.visible_track_count();
+                let column_count = self.grid_layout_metrics(viewport_width).column_count;
+                let total_rows = Self::grid_total_rows(visible_track_count, column_count);
+                let max_start = total_rows.saturating_sub(visible_row_count.max(1));
+                let clamped_grid_start = requested_grid_start.min(max_start);
+                self.grid_start = clamped_grid_start;
+
+                if row_stride > 0.0 && clamped_grid_start != requested_grid_start {
+                    return scrollable::scroll_to(
+                        self.list_scroll_id.clone(),
+                        AbsoluteOffset {
+                            x: Some(0.0),
+                            y: Some(clamped_grid_start as f32 * row_stride),
+                        },
+                    );
+                }
+            }
 
             Message::ListSelectRow(index) => {
                 let Some(playlist_id) = self.view_playlist else {
@@ -1294,6 +1332,7 @@ impl cosmic::Application for AppModel {
 
                 // Reset viewport scroll to top
                 self.list_start = 0;
+                self.grid_start = 0;
                 return scrollable::scroll_to(
                     self.list_scroll_id.clone(),
                     AbsoluteOffset {
@@ -1308,6 +1347,7 @@ impl cosmic::Application for AppModel {
 
                 // Reset viewport scroll to top
                 self.list_start = 0;
+                self.grid_start = 0;
                 return scrollable::scroll_to(
                     self.list_scroll_id.clone(),
                     AbsoluteOffset {
@@ -1323,6 +1363,29 @@ impl cosmic::Application for AppModel {
                         eprintln!("Error selecting all tracks: {}", err);
                     }
                 }
+            }
+
+            Message::SetViewMode(view_mode) => {
+                if self.config.view_mode != view_mode {
+                    config_set!(view_mode, view_mode);
+                }
+                self.config.view_mode = view_mode;
+
+                let scroll_offset = match view_mode {
+                    ViewMode::List => self
+                        .calculate_list_view()
+                        .map(|view_model| view_model.scroll_offset),
+                    ViewMode::Grid => Some(self.grid_start as f32 * self.grid_row_stride()),
+                }
+                .unwrap_or(0.0);
+
+                return scrollable::scroll_to(
+                    self.list_scroll_id.clone(),
+                    AbsoluteOffset {
+                        x: Some(0.0),
+                        y: Some(scroll_offset),
+                    },
+                );
             }
 
             // Add selected paths from the Open dialog
@@ -1479,18 +1542,21 @@ impl cosmic::Application for AppModel {
                     self.core.window.show_context = true;
                 }
 
-                // Restore scroll position from view model
-                if let Some(view_model) = self.calculate_list_view() {
-                    return scrollable::scroll_to::<Action<Message>>(
-                        self.list_scroll_id.clone(),
-                        AbsoluteOffset {
-                            x: Some(0.0 as f32),
-                            y: Some(view_model.scroll_offset as f32),
-                        },
-                    );
+                let scroll_offset = match self.config.view_mode {
+                    ViewMode::List => self
+                        .calculate_list_view()
+                        .map(|view_model| view_model.scroll_offset),
+                    ViewMode::Grid => Some(self.grid_start as f32 * self.grid_row_stride()),
                 }
+                .unwrap_or(0.0);
 
-                return Task::none();
+                return scrollable::scroll_to::<Action<Message>>(
+                    self.list_scroll_id.clone(),
+                    AbsoluteOffset {
+                        x: Some(0.0),
+                        y: Some(scroll_offset),
+                    },
+                );
             }
 
             Message::ToggleListTextWrap(list_text_wrap) => {
@@ -1721,6 +1787,7 @@ impl cosmic::Application for AppModel {
                 // Reset state when switching playlists
                 self.list_last_selected_id = None;
                 self.list_start = 0; // Reset scroll position state
+                self.grid_start = 0;
 
                 return Task::batch([
                     self.update_title(),
@@ -2010,6 +2077,10 @@ impl AppModel {
             TitleSortMode::Alphabetical => 0,
             TitleSortMode::TrackNumber => 1,
         };
+        let view_mode_selected = match self.config.view_mode {
+            ViewMode::List => 0,
+            ViewMode::Grid => 1,
+        };
 
         let mut library_column = widget::column();
 
@@ -2111,6 +2182,21 @@ impl AppModel {
                                 1 => AppTheme::Dark,
                                 2 => AppTheme::Light,
                                 _ => AppTheme::System,
+                            })
+                        },
+                    ))
+                })
+                .into(),
+            settings::section()
+                .title(fl!("view"))
+                .add({
+                    settings::item::builder(fl!("display-mode")).control(widget::dropdown(
+                        &self.view_mode_labels,
+                        Some(view_mode_selected),
+                        move |index| {
+                            Message::SetViewMode(match index {
+                                1 => ViewMode::Grid,
+                                _ => ViewMode::List,
                             })
                         },
                     ))
@@ -2691,8 +2777,84 @@ impl AppModel {
         })
     }
 
-    pub fn is_track_playing(&self, track: &Track, view_model: &ListViewModel) -> bool {
-        view_model.is_playing_playlist
+    pub fn calculate_grid_view(&self, size: Size) -> Option<GridViewModel> {
+        let active_playlist = self.playlist_service.get(self.view_playlist?).ok()?;
+        let tracks = active_playlist.tracks();
+        let normalized_search = self.search_term.as_ref().map(|term| term.to_lowercase());
+
+        let mut filtered_track_count = 0usize;
+        let mut selected_track_ids = Vec::new();
+
+        for track in tracks.iter() {
+            if Self::track_matches_search(track, normalized_search.as_deref()) {
+                filtered_track_count += 1;
+
+                if track.selected {
+                    selected_track_ids.push(track.instance_id());
+                }
+            }
+        }
+
+        let layout = self.grid_layout_metrics(size.width);
+        let total_rows = Self::grid_total_rows(filtered_track_count, layout.column_count);
+        let visible_row_count = self.grid_visible_row_count(size.height);
+        let max_start = total_rows.saturating_sub(visible_row_count.max(1));
+        let grid_start = self.grid_start.min(max_start);
+
+        let start_item = grid_start.saturating_mul(layout.column_count);
+        let end_item = (grid_start + visible_row_count + 1)
+            .saturating_mul(layout.column_count)
+            .min(filtered_track_count);
+
+        let mut visible_track_indices = Vec::with_capacity(end_item.saturating_sub(start_item));
+        if normalized_search.is_none() {
+            visible_track_indices.extend(start_item..end_item);
+        } else if start_item < end_item {
+            let mut filtered_index = 0usize;
+            for (index, track) in tracks.iter().enumerate() {
+                if Self::track_matches_search(track, normalized_search.as_deref()) {
+                    if filtered_index >= start_item {
+                        visible_track_indices.push(index);
+                    }
+
+                    filtered_index += 1;
+                    if filtered_index >= end_item {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let is_playing_playlist = self
+            .playback_service
+            .session()
+            .map(|session| session.playlist_id == active_playlist.id())
+            .unwrap_or(false);
+
+        let top_spacer_height = grid_start as f32 * layout.row_stride;
+        let visible_rows = Self::grid_total_rows(visible_track_indices.len(), layout.column_count);
+        let rendered_height = visible_rows as f32 * layout.row_stride;
+        let total_height = total_rows as f32 * layout.row_stride;
+        let bottom_spacer_height = (total_height - top_spacer_height - rendered_height).max(0.0);
+
+        Some(GridViewModel {
+            visible_track_indices,
+            selected_track_ids: Arc::new(selected_track_ids),
+            column_count: layout.column_count,
+            card_width: layout.card_width,
+            card_height: layout.card_height,
+            artwork_size: layout.artwork_size,
+            card_padding: layout.card_padding,
+            item_spacing: layout.item_spacing,
+            view_padding: layout.view_padding,
+            top_spacer_height,
+            bottom_spacer_height,
+            is_playing_playlist,
+        })
+    }
+
+    pub fn is_track_playing(&self, track: &Track, is_playing_playlist: bool) -> bool {
+        is_playing_playlist
             && self
                 .playback_service
                 .session()
@@ -2811,31 +2973,37 @@ impl AppModel {
             return Task::none();
         }
 
-        if matches!(self.view_mode, ViewMode::List) {
-            if let Some(view_model) = self.calculate_list_view() {
-                let scroll_amount = self.list_visible_row_count as f32 * view_model.row_stride;
+        let scroll_amount = match self.config.view_mode {
+            ViewMode::List => self
+                .calculate_list_view()
+                .map(|view_model| self.list_visible_row_count as f32 * view_model.row_stride),
+            ViewMode::Grid => Some(
+                self.grid_visible_row_count(self.state.window_height) as f32
+                    * self.grid_row_stride(),
+            ),
+        };
 
-                match key {
-                    Key::Named(Named::PageUp) => {
-                        return scrollable::scroll_by::<Action<Message>>(
-                            self.list_scroll_id.clone(),
-                            scrollable::AbsoluteOffset {
-                                x: 0.0,
-                                y: -scroll_amount,
-                            },
-                        );
-                    }
-                    Key::Named(Named::PageDown) => {
-                        return scrollable::scroll_by::<Action<Message>>(
-                            self.list_scroll_id.clone(),
-                            scrollable::AbsoluteOffset {
-                                x: 0.0,
-                                y: scroll_amount,
-                            },
-                        );
-                    }
-                    _ => {}
+        if let Some(scroll_amount) = scroll_amount {
+            match key {
+                Key::Named(Named::PageUp) => {
+                    return scrollable::scroll_by::<Action<Message>>(
+                        self.list_scroll_id.clone(),
+                        scrollable::AbsoluteOffset {
+                            x: 0.0,
+                            y: -scroll_amount,
+                        },
+                    );
                 }
+                Key::Named(Named::PageDown) => {
+                    return scrollable::scroll_by::<Action<Message>>(
+                        self.list_scroll_id.clone(),
+                        scrollable::AbsoluteOffset {
+                            x: 0.0,
+                            y: scroll_amount,
+                        },
+                    );
+                }
+                _ => {}
             }
         }
 
@@ -2914,6 +3082,58 @@ impl AppModel {
             .count()
     }
 
+    fn grid_layout_metrics(&self, width: f32) -> GridLayoutMetrics {
+        let artwork_size = clamp(
+            self.size_multiplier * GRID_ARTWORK_SCALE,
+            GRID_MIN_ARTWORK_SIZE,
+            GRID_MAX_ARTWORK_SIZE,
+        );
+        let card_width = artwork_size + (GRID_CARD_PADDING * 2.0);
+        let card_height = artwork_size
+            + (GRID_CARD_PADDING * 2.0)
+            + GRID_TITLE_HEIGHT
+            + GRID_SUBTITLE_HEIGHT
+            + GRID_INFO_HEIGHT
+            + (GRID_CARD_CONTENT_SPACING * 3.0);
+        let available_width = (width - (GRID_VIEW_PADDING * 2.0)).max(card_width);
+        let column_count = (((available_width + GRID_ITEM_SPACING)
+            / (card_width + GRID_ITEM_SPACING))
+            .floor() as usize)
+            .max(1);
+
+        GridLayoutMetrics {
+            artwork_size,
+            card_width,
+            card_height,
+            card_padding: GRID_CARD_PADDING,
+            column_count,
+            item_spacing: GRID_ITEM_SPACING,
+            row_stride: card_height + GRID_ITEM_SPACING,
+            view_padding: GRID_VIEW_PADDING,
+        }
+    }
+
+    fn grid_row_stride(&self) -> f32 {
+        self.grid_layout_metrics(self.state.window_width).row_stride
+    }
+
+    fn grid_visible_row_count(&self, height: f32) -> usize {
+        let row_stride = self.grid_row_stride();
+        if row_stride == 0.0 {
+            0
+        } else {
+            (height / row_stride).ceil() as usize
+        }
+    }
+
+    fn grid_total_rows(track_count: usize, column_count: usize) -> usize {
+        if track_count == 0 {
+            0
+        } else {
+            (track_count - 1) / column_count.max(1) + 1
+        }
+    }
+
     fn max_list_start(track_count: usize, visible_row_count: usize) -> usize {
         track_count.saturating_sub(visible_row_count.max(1))
     }
@@ -2961,6 +3181,7 @@ pub enum MenuAction {
     Quit,
     RenamePlaylist,
     SelectAll,
+    SetViewMode(ViewMode),
     Settings,
     ToggleMute,
     ToggleRepeat,
@@ -2990,6 +3211,7 @@ impl menu::action::MenuAction for MenuAction {
             MenuAction::RenamePlaylist => Message::RenamePlaylist,
             MenuAction::Quit => Message::Quit,
             MenuAction::SelectAll => Message::SelectAll,
+            MenuAction::SetViewMode(view_mode) => Message::SetViewMode(*view_mode),
             MenuAction::Settings => Message::ToggleContextPage(ContextPage::Settings),
             MenuAction::ToggleMute => Message::ToggleMute,
             MenuAction::ToggleRepeat => Message::ToggleRepeat,
@@ -3084,9 +3306,10 @@ pub enum PlaylistKind {
     User,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ViewMode {
     List,
+    Grid,
 }
 
 fn track_info_row<'a>(title: String, data: String) -> widget::Row<'a, Message> {
@@ -3184,6 +3407,32 @@ fn list_column_settings_control<'a>(
                 .on_press_maybe(can_move_down.then_some(Message::MoveListColumnDown(column))),
         )
         .into()
+}
+
+struct GridLayoutMetrics {
+    artwork_size: f32,
+    card_width: f32,
+    card_height: f32,
+    card_padding: f32,
+    column_count: usize,
+    item_spacing: f32,
+    row_stride: f32,
+    view_padding: f32,
+}
+
+pub struct GridViewModel {
+    pub visible_track_indices: Vec<usize>,
+    pub selected_track_ids: Arc<Vec<String>>,
+    pub column_count: usize,
+    pub card_width: f32,
+    pub card_height: f32,
+    pub artwork_size: f32,
+    pub card_padding: f32,
+    pub item_spacing: f32,
+    pub view_padding: f32,
+    pub top_spacer_height: f32,
+    pub bottom_spacer_height: f32,
+    pub is_playing_playlist: bool,
 }
 
 pub struct ListViewModel {
