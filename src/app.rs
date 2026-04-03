@@ -157,6 +157,8 @@ pub enum Message {
     LibraryPathOpenError(Arc<file_chooser::Error>),
     LibraryProgress(LibraryProgress),
     GridViewScroll(scrollable::Viewport),
+    GridViewSort(SortBy),
+    GridViewSortDirection(SortDirection),
     ListSelectRow(usize),
     ListViewScroll(scrollable::Viewport),
     ListViewSort(SortBy),
@@ -1011,6 +1013,24 @@ impl cosmic::Application for AppModel {
                 }
             }
 
+            Message::GridViewSort(sort_by) => {
+                if self.state.sort_by == sort_by {
+                    return Task::none();
+                }
+
+                state_set!(sort_by, sort_by);
+                self.sort_all_playlists();
+            }
+
+            Message::GridViewSortDirection(direction) => {
+                if self.state.sort_direction == direction {
+                    return Task::none();
+                }
+
+                state_set!(sort_direction, direction);
+                self.sort_all_playlists();
+            }
+
             Message::ListSelectRow(index) => {
                 let Some(playlist_id) = self.view_playlist else {
                     return Task::none();
@@ -1096,19 +1116,9 @@ impl cosmic::Application for AppModel {
                     SortDirection::Ascending
                 };
 
-                state_set!(sort_by, new_sort_by.clone());
-                state_set!(sort_direction, new_direction.clone());
-
-                // Sort ALL playlists (including library)
-                let playlist_ids: Vec<u32> =
-                    self.playlist_service.all().iter().map(|p| p.id()).collect();
-
-                let title_sort = self.config.title_sort;
-                for id in playlist_ids {
-                    if let Ok(playlist) = self.playlist_service.get_mut(id) {
-                        playlist.sort(new_sort_by.clone(), new_direction.clone(), title_sort);
-                    }
-                }
+                state_set!(sort_by, new_sort_by);
+                state_set!(sort_direction, new_direction);
+                self.sort_all_playlists();
             }
 
             Message::MoveListColumnUp(column) => {
@@ -1517,19 +1527,7 @@ impl cosmic::Application for AppModel {
 
             Message::TitleSort(title_sort) => {
                 config_set!(title_sort, title_sort);
-
-                let playlist_ids: Vec<u32> =
-                    self.playlist_service.all().iter().map(|p| p.id()).collect();
-
-                for id in playlist_ids {
-                    if let Ok(playlist) = self.playlist_service.get_mut(id) {
-                        playlist.sort(
-                            self.state.sort_by.clone(),
-                            self.state.sort_direction.clone(),
-                            title_sort,
-                        );
-                    }
-                }
+                self.sort_all_playlists();
             }
 
             Message::ToggleContextPage(context_page) => {
@@ -2912,6 +2910,20 @@ impl AppModel {
                     name: p.name().to_string(),
                 })
                 .collect()
+        }
+    }
+
+
+    fn sort_all_playlists(&mut self) {
+        let playlist_ids: Vec<u32> = self.playlist_service.all().iter().map(|p| p.id()).collect();
+        let sort_by = self.state.sort_by.clone();
+        let sort_direction = self.state.sort_direction.clone();
+        let title_sort = self.config.title_sort;
+
+        for id in playlist_ids {
+            if let Ok(playlist) = self.playlist_service.get_mut(id) {
+                playlist.sort(sort_by.clone(), sort_direction.clone(), title_sort);
+            }
         }
     }
 

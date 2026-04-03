@@ -34,6 +34,10 @@ pub fn key_binds() -> HashMap<KeyBind, MenuAction> {
     bind!([Ctrl], Key::Named(Named::ArrowUp), MoveNavUp);
     bind!([Ctrl], Key::Named(Named::ArrowDown), MoveNavDown);
     bind!([], Key::Named(Named::F1), TrackInfoPanel);
+    bind!([], Key::Character("m".into()), ToggleMute);
+    bind!([], Key::Character("-".into()), VolumeDown);
+    bind!([], Key::Character("=".into()), VolumeUp);
+
     key_binds.insert(
         KeyBind {
             modifiers: vec![Modifier::Ctrl, Modifier::Shift],
@@ -48,9 +52,6 @@ pub fn key_binds() -> HashMap<KeyBind, MenuAction> {
         },
         MenuAction::SetViewMode(ViewMode::Grid),
     );
-    bind!([], Key::Character("m".into()), ToggleMute);
-    bind!([], Key::Character("-".into()), VolumeDown);
-    bind!([], Key::Character("=".into()), VolumeUp);
 
     key_binds
 }

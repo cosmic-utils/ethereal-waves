@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
-use crate::app::{AppModel, GridViewModel, Message, TrackDropData};
+use crate::app::{AppModel, GridViewModel, Message, SortBy, SortDirection, TrackDropData};
 use crate::constants::*;
 use crate::fl;
 use crate::playlist::Track;
@@ -17,19 +17,45 @@ use cosmic::{
 use std::sync::Arc;
 
 pub fn content<'a>(app: &'a AppModel) -> Element<'a, Message> {
-    widget::responsive(move |size| content_responsive(app, size)).into()
+    let cosmic_theme::Spacing { space_xxs, .. } = theme::active().cosmic().spacing;
+
+    let sort_controls = widget::row()
+        .width(Length::Fill)
+        .padding([space_xxs, GRID_VIEW_PADDING as u16])
+        .spacing(space_xxs)
+        .align_y(Alignment::Center)
+        .push(widget::dropdown(
+            grid_sort_options(),
+            grid_sort_selected(&app.state.sort_by),
+            grid_sort_message,
+        ))
+        .push(grid_sort_direction_toggle(&app.state.sort_direction));
+
+    widget::column()
+        .push(sort_controls)
+        .push(widget::divider::horizontal::default())
+        .push(
+            widget::container(widget::responsive(move |size| {
+                scroll_content_responsive(app, size)
+            }))
+            .width(Length::Fill)
+            .height(Length::Fill),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
 }
 
-fn content_responsive<'a>(app: &'a AppModel, size: Size) -> Element<'a, Message> {
+fn scroll_content_responsive<'a>(app: &'a AppModel, size: Size) -> Element<'a, Message> {
     let Some(view_model) = app.calculate_grid_view(size) else {
-        return widget::column().into();
+        return empty_scroller(app);
     };
 
     let Some(active_playlist) = app
         .view_playlist
         .and_then(|playlist_id| app.playlist_service.get(playlist_id).ok())
     else {
-        return widget::column().into();
+        return empty_scroller(app);
     };
 
     let active_tracks = active_playlist.tracks();
@@ -79,15 +105,82 @@ fn content_responsive<'a>(app: &'a AppModel, size: Size) -> Element<'a, Message>
     }
 
     if view_model.bottom_spacer_height > 0.0 {
-        rows = rows
-            .push(widget::space::vertical().height(Length::Fixed(view_model.bottom_spacer_height)));
+        rows = rows.push(
+            widget::space::vertical().height(Length::Fixed(view_model.bottom_spacer_height)),
+        );
     }
 
     widget::scrollable(rows)
         .id(app.list_scroll_id.clone())
         .width(Length::Fill)
+        .height(Length::Fill)
         .on_scroll(|viewport| Message::GridViewScroll(viewport))
         .into()
+}
+
+fn empty_scroller<'a>(app: &'a AppModel) -> Element<'a, Message> {
+    widget::scrollable(widget::column())
+        .id(app.list_scroll_id.clone())
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .on_scroll(|viewport| Message::GridViewScroll(viewport))
+        .into()
+}
+
+fn grid_sort_options() -> Vec<String> {
+    vec![
+        fl!("title"),
+        fl!("album"),
+        fl!("artist"),
+        fl!("album-artist"),
+    ]
+}
+
+fn grid_sort_selected(sort_by: &SortBy) -> Option<usize> {
+    match sort_by {
+        SortBy::Title => Some(0),
+        SortBy::Album => Some(1),
+        SortBy::Artist => Some(2),
+        SortBy::AlbumArtist => Some(3),
+        _ => None,
+    }
+}
+
+fn grid_sort_message(index: usize) -> Message {
+    Message::GridViewSort(match index {
+        0 => SortBy::Title,
+        1 => SortBy::Album,
+        2 => SortBy::Artist,
+        3 => SortBy::AlbumArtist,
+        _ => SortBy::Title,
+    })
+}
+
+fn grid_sort_direction_toggle<'a>(
+    active_direction: &SortDirection,
+) -> Element<'a, Message> {
+    widget::button::icon(
+        widget::icon::from_name(grid_sort_direction_icon_name(active_direction)).size(16),
+    )
+    .extra_small()
+    .on_press(Message::GridViewSortDirection(
+        grid_sort_direction_toggled(active_direction),
+    ))
+    .into()
+}
+
+fn grid_sort_direction_icon_name(direction: &SortDirection) -> &'static str {
+    match direction {
+        SortDirection::Ascending => "view-sort-ascending-symbolic",
+        SortDirection::Descending => "view-sort-descending-symbolic",
+    }
+}
+
+fn grid_sort_direction_toggled(direction: &SortDirection) -> SortDirection {
+    match direction {
+        SortDirection::Ascending => SortDirection::Descending,
+        SortDirection::Descending => SortDirection::Ascending,
+    }
 }
 
 fn track_card<'a>(
