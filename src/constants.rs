@@ -38,6 +38,8 @@ pub const TICK_INTERVAL_MS: u64 = 100;
 pub const PROGRESS_UPDATE_INTERVAL_MS: u64 = 200;
 pub const LIBRARY_UPDATE_INTERVAL_SECS: u64 = 10;
 pub const GSTREAMER_TIMEOUT_SECS: u64 = 5;
+pub const IMAGE_CACHE_TTL_SECS: u64 = 300;
+pub const IMAGE_CACHE_SWEEP_SECS: u64 = 30;
 
 /// Audio File Extensions
 pub const VALID_AUDIO_EXTENSIONS: &[&str] = &["flac", "m4a", "mp3", "ogg", "opus", "wav"];

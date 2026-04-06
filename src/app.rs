@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use crate::config::{
-    AppTheme, CONFIG_VERSION, Config, ListColumn, PlaylistDuplicatePolicy, State, TitleSortMode,
+    AppTheme, CONFIG_VERSION, Config, GridGroupBy, ListColumn, PlaylistDuplicatePolicy, State,
+    TitleSortMode,
 };
 use crate::constants::*;
 use crate::fl;
@@ -49,6 +50,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::{
     borrow::Cow,
+    cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     process,
@@ -87,7 +89,6 @@ pub struct AppModel {
     /// Settings page / app theme dropdown labels
     app_theme_labels: Vec<String>,
     title_sort_labels: Vec<String>,
-    view_mode_labels: Vec<String>,
     playlist_duplicate_policy_lables: Vec<String>,
 
     pub is_condensed: bool,
@@ -119,6 +120,8 @@ pub struct AppModel {
     pub list_start: usize,
     pub list_visible_row_count: usize,
     grid_start: usize,
+    view_cache: RefCell<Option<CachedViewBase>>,
+    grid_card_cache: RefCell<Option<CachedGridCardBase>>,
     list_last_clicked: Option<Instant>,
     list_last_selected_id: Option<usize>,
 
@@ -148,6 +151,7 @@ pub enum Message {
     AppTheme(AppTheme),
     CancelLibraryUpdate,
     ChangeTrack(usize),
+    ChangeTracks(Arc<Vec<usize>>),
     DeletePlaylist,
     DialogCancel,
     DialogComplete,
@@ -157,9 +161,11 @@ pub enum Message {
     LibraryPathOpenError(Arc<file_chooser::Error>),
     LibraryProgress(LibraryProgress),
     GridViewScroll(scrollable::Viewport),
+    GridViewGroupBy(GridGroupBy),
     GridViewSort(SortBy),
     GridViewSortDirection(SortDirection),
     ListSelectRow(usize),
+    ListSelectRows(Arc<Vec<usize>>),
     ListViewScroll(scrollable::Viewport),
     ListViewSort(SortBy),
     MoveListColumnDown(ListColumn),
@@ -296,7 +302,6 @@ impl cosmic::Application for AppModel {
                 .unwrap_or_default(),
             app_theme_labels: vec![fl!("match-desktop"), fl!("dark"), fl!("light")],
             title_sort_labels: vec![fl!("alphabetical"), fl!("track-number")],
-            view_mode_labels: vec![fl!("list-view"), fl!("grid-view")],
             playlist_duplicate_policy_lables: vec![fl!("allow"), fl!("disallow"), fl!("ask")],
             is_condensed: false,
             config_handler: _flags.config_handler,
@@ -322,6 +327,8 @@ impl cosmic::Application for AppModel {
             list_start: 0,
             list_visible_row_count: 0,
             grid_start: 0,
+            view_cache: RefCell::new(None),
+            grid_card_cache: RefCell::new(None),
             list_last_clicked: None,
             list_last_selected_id: None,
             control_pressed: 0,
@@ -794,7 +801,6 @@ impl cosmic::Application for AppModel {
 
                 if let Some(last) = self.list_last_clicked {
                     if is_double_click(last, DOUBLE_CLICK_THRESHOLD_MS) {
-                        // Double-click: play track
                         let mut started = false;
                         if let Ok(playlist) = self.playlist_service.get(playlist_id) {
                             self.playback_service.start_session(
@@ -803,6 +809,38 @@ impl cosmic::Application for AppModel {
                                 self.state.shuffle,
                             );
                             started = true;
+                        }
+                        if started {
+                            self.sync_playback_output_from_state();
+                            self.playback_service.play();
+                        }
+                    }
+                }
+
+                self.list_last_clicked = Some(now);
+            }
+
+            Message::ChangeTracks(indices) => {
+                let Some(playlist_id) = self.view_playlist else {
+                    return Task::none();
+                };
+
+                let now = Instant::now();
+
+                if let Some(last) = self.list_last_clicked {
+                    if is_double_click(last, DOUBLE_CLICK_THRESHOLD_MS) {
+                        let mut started = false;
+                        if let Ok(playlist) = self.playlist_service.get(playlist_id) {
+                            if let Some(index) =
+                                self.pick_group_playback_index(playlist, indices.as_ref())
+                            {
+                                self.playback_service.start_session(
+                                    playlist,
+                                    index,
+                                    self.state.shuffle,
+                                );
+                                started = true;
+                            }
                         }
                         if started {
                             self.sync_playback_output_from_state();
@@ -907,6 +945,8 @@ impl cosmic::Application for AppModel {
                             eprintln!("Error removing tracks: {}", err);
                         }
 
+                        self.invalidate_all_caches();
+
                         // Reset viewport scroll to top
                         self.list_start = 0;
                         self.grid_start = 0;
@@ -986,31 +1026,49 @@ impl cosmic::Application for AppModel {
                 let scroll_offset = viewport.absolute_offset().y;
                 let viewport_height = viewport.bounds().height;
                 let viewport_width = viewport.bounds().width;
-                let row_stride = self.grid_row_stride();
+                let layout = self.grid_layout_metrics(viewport_width);
 
-                let requested_grid_start = if scroll_offset == 0.0 || row_stride == 0.0 {
+                let requested_grid_start = if scroll_offset == 0.0 || layout.row_stride == 0.0 {
                     0
                 } else {
-                    (scroll_offset / row_stride).floor() as usize
+                    (scroll_offset / layout.row_stride).floor() as usize
                 };
 
-                let visible_row_count = self.grid_visible_row_count(viewport_height);
-                let visible_track_count = self.visible_track_count();
-                let column_count = self.grid_layout_metrics(viewport_width).column_count;
-                let total_rows = Self::grid_total_rows(visible_track_count, column_count);
+                let visible_row_count =
+                    Self::grid_visible_row_count_for_stride(viewport_height, layout.row_stride);
+                let visible_card_count = self.visible_grid_card_count();
+                let total_rows = Self::grid_total_rows(visible_card_count, layout.column_count);
                 let max_start = total_rows.saturating_sub(visible_row_count.max(1));
                 let clamped_grid_start = requested_grid_start.min(max_start);
                 self.grid_start = clamped_grid_start;
 
-                if row_stride > 0.0 && clamped_grid_start != requested_grid_start {
+                if layout.row_stride > 0.0 && clamped_grid_start != requested_grid_start {
                     return scrollable::scroll_to(
                         self.list_scroll_id.clone(),
                         AbsoluteOffset {
                             x: Some(0.0),
-                            y: Some(clamped_grid_start as f32 * row_stride),
+                            y: Some(clamped_grid_start as f32 * layout.row_stride),
                         },
                     );
                 }
+            }
+
+            Message::GridViewGroupBy(group_by) => {
+                if self.config.grid_group_by == group_by {
+                    return Task::none();
+                }
+
+                config_set!(grid_group_by, group_by);
+                self.config.grid_group_by = group_by;
+                self.grid_start = 0;
+
+                return scrollable::scroll_to(
+                    self.list_scroll_id.clone(),
+                    AbsoluteOffset {
+                        x: Some(0.0),
+                        y: Some(0.0),
+                    },
+                );
             }
 
             Message::GridViewSort(sort_by) => {
@@ -1037,14 +1095,12 @@ impl cosmic::Application for AppModel {
                 };
 
                 if self.shift_pressed > 0 {
-                    // Ctrl + Shift + Click: select range
                     if let Some(last_id) = self.list_last_selected_id {
                         let _ = self
                             .playlist_service
                             .select_range(playlist_id, last_id, index);
                     }
                 } else if self.control_pressed > 0 {
-                    // Ctrl + Click: toggle selection
                     let Ok(playlist) = self.playlist_service.get(playlist_id) else {
                         return Task::none();
                     };
@@ -1057,16 +1113,69 @@ impl cosmic::Application for AppModel {
 
                     self.list_last_selected_id = Some(index);
                 } else {
-                    // Click: clear all and select one
                     let _ = self.playlist_service.clear_selection(playlist_id);
                     let _ = self.playlist_service.select_track(playlist_id, index);
-
-                    // TODO: Handle double click for playback
-
                     self.list_last_selected_id = Some(index);
                 }
+
+                self.invalidate_view_cache();
             }
 
+            Message::ListSelectRows(indices) => {
+                let Some(playlist_id) = self.view_playlist else {
+                    return Task::none();
+                };
+
+                if indices.is_empty() {
+                    return Task::none();
+                }
+
+                let primary_index = indices[0];
+
+                if self.shift_pressed > 0 {
+                    if let Some(last_id) = self.list_last_selected_id {
+                        let _ =
+                            self.playlist_service
+                                .select_range(playlist_id, last_id, primary_index);
+                    }
+
+                    for &index in indices.iter() {
+                        let _ = self.playlist_service.select_track(playlist_id, index);
+                    }
+                } else if self.control_pressed > 0 {
+                    let should_deselect = {
+                        let Ok(playlist) = self.playlist_service.get(playlist_id) else {
+                            return Task::none();
+                        };
+
+                        indices.iter().all(|&index| {
+                            playlist
+                                .tracks()
+                                .get(index)
+                                .map(|track| track.selected)
+                                .unwrap_or(false)
+                        })
+                    };
+
+                    for &index in indices.iter() {
+                        let _ = if should_deselect {
+                            self.playlist_service.deselect_track(playlist_id, index)
+                        } else {
+                            self.playlist_service.select_track(playlist_id, index)
+                        };
+                    }
+                } else {
+                    let _ = self.playlist_service.clear_selection(playlist_id);
+                    for &index in indices.iter() {
+                        let _ = self.playlist_service.select_track(playlist_id, index);
+                    }
+                }
+
+                self.list_last_selected_id = Some(primary_index);
+                self.invalidate_view_cache();
+            }
+
+            // Handle scroll events from scrollable widgets
             // Handle scroll events from scrollable widgets
             Message::ListViewScroll(viewport) => {
                 let scroll_offset = viewport.absolute_offset().y;
@@ -1373,6 +1482,8 @@ impl cosmic::Application for AppModel {
                         eprintln!("Error selecting all tracks: {}", err);
                     }
                 }
+
+                self.invalidate_view_cache();
             }
 
             Message::SetViewMode(view_mode) => {
@@ -2056,6 +2167,8 @@ impl AppModel {
                 }
             }
         }
+
+        self.invalidate_all_caches();
     }
 
     /// Settings page content
@@ -2074,10 +2187,6 @@ impl AppModel {
         let title_sort_selected = match self.config.title_sort {
             TitleSortMode::Alphabetical => 0,
             TitleSortMode::TrackNumber => 1,
-        };
-        let view_mode_selected = match self.config.view_mode {
-            ViewMode::List => 0,
-            ViewMode::Grid => 1,
         };
 
         let mut library_column = widget::column();
@@ -2185,21 +2294,7 @@ impl AppModel {
                     ))
                 })
                 .into(),
-            settings::section()
-                .title(fl!("view"))
-                .add({
-                    settings::item::builder(fl!("display-mode")).control(widget::dropdown(
-                        &self.view_mode_labels,
-                        Some(view_mode_selected),
-                        move |index| {
-                            Message::SetViewMode(match index {
-                                1 => ViewMode::Grid,
-                                _ => ViewMode::List,
-                            })
-                        },
-                    ))
-                })
-                .into(),
+            settings::section().title(fl!("view")).into(),
             settings::section()
                 .title(fl!("playlist"))
                 .add({
@@ -2364,6 +2459,8 @@ impl AppModel {
                 );
             }
         }
+
+        self.invalidate_all_caches();
 
         // Decide nav order
         let items: Vec<NavPlaylistItem> = if !self.state.playlist_nav_order.is_empty() {
@@ -2680,51 +2777,23 @@ impl AppModel {
         let active_playlist = self.playlist_service.get(self.view_playlist?).ok()?;
         let tracks = active_playlist.tracks();
         let normalized_search = self.search_term.as_ref().map(|term| term.to_lowercase());
+        let (filtered_track_indices, selected_track_ids, max_track_number_chars) =
+            self.cached_view_base(active_playlist.id(), tracks, normalized_search.as_deref());
 
-        let mut filtered_track_count = 0usize;
-        let mut max_track_number_chars = 0usize;
-        let mut selected_track_ids = Vec::new();
-
-        for track in tracks.iter() {
-            if Self::track_matches_search(track, normalized_search.as_deref()) {
-                filtered_track_count += 1;
-                max_track_number_chars =
-                    max_track_number_chars.max(Self::track_number_chars(track));
-
-                if track.selected {
-                    selected_track_ids.push(track.instance_id());
-                }
-            }
-        }
-
+        let filtered_track_count = filtered_track_indices.len();
         let max_start = Self::max_list_start(filtered_track_count, self.list_visible_row_count);
         let list_start = self.list_start.min(max_start);
 
         let row_height = self.size_multiplier * BASE_ROW_HEIGHT;
-
         let row_stride =
             calculate_row_stride(self.size_multiplier, BASE_ROW_HEIGHT, DIVIDER_HEIGHT);
 
         let list_end = (list_start + self.list_visible_row_count + 1).min(filtered_track_count);
-
-        let mut visible_track_indices = Vec::with_capacity(list_end.saturating_sub(list_start));
-        if normalized_search.is_none() {
-            visible_track_indices.extend(list_start..list_end);
-        } else if list_start < list_end {
-            let mut filtered_index = 0usize;
-            for (index, track) in tracks.iter().enumerate() {
-                if Self::track_matches_search(track, normalized_search.as_deref()) {
-                    if filtered_index >= list_start {
-                        visible_track_indices.push(index);
-                    }
-
-                    filtered_index += 1;
-                    if filtered_index >= list_end {
-                        break;
-                    }
-                }
-            }
-        }
+        let visible_track_indices = if list_start < list_end {
+            filtered_track_indices[list_start..list_end].to_vec()
+        } else {
+            Vec::new()
+        };
 
         let chars = filtered_track_count.to_string().len() as f32;
         let number_column_width = chars * 11.0;
@@ -2737,7 +2806,6 @@ impl AppModel {
             .map(|session| session.playlist_id == active_playlist.id())
             .unwrap_or(false);
 
-        // Determine UI settings from config
         let wrapping = if self.config.list_text_wrap {
             Wrapping::Word
         } else {
@@ -2759,7 +2827,7 @@ impl AppModel {
 
         Some(ListViewModel {
             visible_track_indices,
-            selected_track_ids: Arc::new(selected_track_ids),
+            selected_track_ids,
             max_track_number_chars,
             list_start,
             number_column_width,
@@ -2768,7 +2836,7 @@ impl AppModel {
             viewport_height,
             is_playing_playlist,
             row_height,
-            scroll_offset: scroll_offset,
+            scroll_offset,
             wrapping,
             row_align,
             sort_direction_icon,
@@ -2779,49 +2847,28 @@ impl AppModel {
         let active_playlist = self.playlist_service.get(self.view_playlist?).ok()?;
         let tracks = active_playlist.tracks();
         let normalized_search = self.search_term.as_ref().map(|term| term.to_lowercase());
-
-        let mut filtered_track_count = 0usize;
-        let mut selected_track_ids = Vec::new();
-
-        for track in tracks.iter() {
-            if Self::track_matches_search(track, normalized_search.as_deref()) {
-                filtered_track_count += 1;
-
-                if track.selected {
-                    selected_track_ids.push(track.instance_id());
-                }
-            }
-        }
+        let (filtered_track_indices, selected_track_ids, _) =
+            self.cached_view_base(active_playlist.id(), tracks, normalized_search.as_deref());
+        let grid_card_bases = self.cached_grid_card_bases(
+            active_playlist.id(),
+            tracks,
+            Arc::clone(&filtered_track_indices),
+            normalized_search.as_deref(),
+            self.config.grid_group_by,
+        );
 
         let layout = self.grid_layout_metrics(size.width);
-        let total_rows = Self::grid_total_rows(filtered_track_count, layout.column_count);
-        let visible_row_count = self.grid_visible_row_count(size.height);
+        let total_card_count = grid_card_bases.len();
+        let total_rows = Self::grid_total_rows(total_card_count, layout.column_count);
+        let visible_row_count =
+            Self::grid_visible_row_count_for_stride(size.height, layout.row_stride);
         let max_start = total_rows.saturating_sub(visible_row_count.max(1));
         let grid_start = self.grid_start.min(max_start);
 
         let start_item = grid_start.saturating_mul(layout.column_count);
         let end_item = (grid_start + visible_row_count + 1)
             .saturating_mul(layout.column_count)
-            .min(filtered_track_count);
-
-        let mut visible_track_indices = Vec::with_capacity(end_item.saturating_sub(start_item));
-        if normalized_search.is_none() {
-            visible_track_indices.extend(start_item..end_item);
-        } else if start_item < end_item {
-            let mut filtered_index = 0usize;
-            for (index, track) in tracks.iter().enumerate() {
-                if Self::track_matches_search(track, normalized_search.as_deref()) {
-                    if filtered_index >= start_item {
-                        visible_track_indices.push(index);
-                    }
-
-                    filtered_index += 1;
-                    if filtered_index >= end_item {
-                        break;
-                    }
-                }
-            }
-        }
+            .min(total_card_count);
 
         let is_playing_playlist = self
             .playback_service
@@ -2829,15 +2876,46 @@ impl AppModel {
             .map(|session| session.playlist_id == active_playlist.id())
             .unwrap_or(false);
 
+        let visible_cards = if start_item < end_item {
+            grid_card_bases[start_item..end_item]
+                .iter()
+                .map(|card| GridCardModel {
+                    title: card.title.clone(),
+                    subtitle: card.subtitle.clone(),
+                    info_text: card.info_text.clone(),
+                    duration_text: card.duration_text.clone(),
+                    artwork_filename: card.artwork_filename.clone(),
+                    playlist_indices: Arc::clone(&card.playlist_indices),
+                    track_ids: Arc::clone(&card.track_ids),
+                    selected: card.playlist_indices.iter().all(|&index| {
+                        tracks
+                            .get(index)
+                            .map(|track| track.selected)
+                            .unwrap_or(false)
+                    }),
+                    is_playing: card.playlist_indices.iter().any(|&index| {
+                        tracks
+                            .get(index)
+                            .map(|track| self.is_track_playing(track, is_playing_playlist))
+                            .unwrap_or(false)
+                    }),
+                    has_available_track: card.has_available_track,
+                    has_missing_tracks: card.has_missing_tracks,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         let top_spacer_height = grid_start as f32 * layout.row_stride;
-        let visible_rows = Self::grid_total_rows(visible_track_indices.len(), layout.column_count);
+        let visible_rows = Self::grid_total_rows(visible_cards.len(), layout.column_count);
         let rendered_height = visible_rows as f32 * layout.row_stride;
         let total_height = total_rows as f32 * layout.row_stride;
         let bottom_spacer_height = (total_height - top_spacer_height - rendered_height).max(0.0);
 
         Some(GridViewModel {
-            visible_track_indices,
-            selected_track_ids: Arc::new(selected_track_ids),
+            visible_cards,
+            selected_track_ids,
             column_count: layout.column_count,
             card_width: layout.card_width,
             card_height: layout.card_height,
@@ -2847,7 +2925,6 @@ impl AppModel {
             view_padding: layout.view_padding,
             top_spacer_height,
             bottom_spacer_height,
-            is_playing_playlist,
         })
     }
 
@@ -2913,7 +2990,6 @@ impl AppModel {
         }
     }
 
-
     fn sort_all_playlists(&mut self) {
         let playlist_ids: Vec<u32> = self.playlist_service.all().iter().map(|p| p.id()).collect();
         let sort_by = self.state.sort_by.clone();
@@ -2925,6 +3001,8 @@ impl AppModel {
                 playlist.sort(sort_by.clone(), sort_direction.clone(), title_sort);
             }
         }
+
+        self.invalidate_all_caches();
     }
 
     fn update_library_playlist(&mut self) {
@@ -2945,6 +3023,8 @@ impl AppModel {
             let library = lib_playlist.clone();
             self.playback_service.update_session_for_library(&library);
         }
+
+        self.invalidate_all_caches();
     }
 
     fn handle_key_pressed(
@@ -3087,11 +3167,434 @@ impl AppModel {
         };
 
         let normalized_search = self.search_term.as_ref().map(|term| term.to_lowercase());
-        active_playlist
-            .tracks()
+        let (filtered_track_indices, _, _) = self.cached_view_base(
+            playlist_id,
+            active_playlist.tracks(),
+            normalized_search.as_deref(),
+        );
+
+        filtered_track_indices.len()
+    }
+
+    fn visible_grid_card_count(&self) -> usize {
+        let Some(playlist_id) = self.view_playlist else {
+            return 0;
+        };
+
+        let Ok(active_playlist) = self.playlist_service.get(playlist_id) else {
+            return 0;
+        };
+
+        let normalized_search = self.search_term.as_ref().map(|term| term.to_lowercase());
+        let (filtered_track_indices, _, _) = self.cached_view_base(
+            playlist_id,
+            active_playlist.tracks(),
+            normalized_search.as_deref(),
+        );
+        let grid_card_bases = self.cached_grid_card_bases(
+            playlist_id,
+            active_playlist.tracks(),
+            filtered_track_indices,
+            normalized_search.as_deref(),
+            self.config.grid_group_by,
+        );
+
+        grid_card_bases.len()
+    }
+
+    fn invalidate_view_cache(&self) {
+        self.view_cache.borrow_mut().take();
+    }
+
+    fn invalidate_grid_card_cache(&self) {
+        self.grid_card_cache.borrow_mut().take();
+    }
+
+    fn invalidate_all_caches(&self) {
+        self.invalidate_view_cache();
+        self.invalidate_grid_card_cache();
+    }
+
+    fn filtered_track_indices(tracks: &[Track], normalized_search: Option<&str>) -> Vec<usize> {
+        if normalized_search.is_none() {
+            return (0..tracks.len()).collect();
+        }
+
+        tracks
             .iter()
-            .filter(|track| Self::track_matches_search(track, normalized_search.as_deref()))
-            .count()
+            .enumerate()
+            .filter_map(|(index, track)| {
+                Self::track_matches_search(track, normalized_search).then_some(index)
+            })
+            .collect()
+    }
+
+    fn cached_view_base(
+        &self,
+        playlist_id: PlaylistId,
+        tracks: &[Track],
+        normalized_search: Option<&str>,
+    ) -> (Arc<Vec<usize>>, Arc<Vec<String>>, usize) {
+        let key = CachedViewBaseKey {
+            playlist_id,
+            normalized_search: normalized_search.map(str::to_owned),
+        };
+
+        {
+            let cache = self.view_cache.borrow();
+            if let Some(cache) = cache.as_ref() {
+                if cache.key == key {
+                    return (
+                        Arc::clone(&cache.filtered_track_indices),
+                        Arc::clone(&cache.selected_track_ids),
+                        cache.max_track_number_chars,
+                    );
+                }
+            }
+        }
+
+        let filtered_track_indices =
+            Arc::new(Self::filtered_track_indices(tracks, normalized_search));
+        let mut selected_track_ids = Vec::new();
+        let mut max_track_number_chars = 0usize;
+
+        for &index in filtered_track_indices.iter() {
+            if let Some(track) = tracks.get(index) {
+                max_track_number_chars =
+                    max_track_number_chars.max(Self::track_number_chars(track));
+
+                if track.selected {
+                    selected_track_ids.push(track.instance_id());
+                }
+            }
+        }
+
+        let selected_track_ids = Arc::new(selected_track_ids);
+
+        *self.view_cache.borrow_mut() = Some(CachedViewBase {
+            key,
+            filtered_track_indices: Arc::clone(&filtered_track_indices),
+            selected_track_ids: Arc::clone(&selected_track_ids),
+            max_track_number_chars,
+        });
+
+        (
+            filtered_track_indices,
+            selected_track_ids,
+            max_track_number_chars,
+        )
+    }
+
+    fn cached_grid_card_bases(
+        &self,
+        playlist_id: PlaylistId,
+        tracks: &[Track],
+        filtered_track_indices: Arc<Vec<usize>>,
+        normalized_search: Option<&str>,
+        group_by: GridGroupBy,
+    ) -> Arc<Vec<GridCardBase>> {
+        let key = CachedGridCardBaseKey {
+            playlist_id,
+            normalized_search: normalized_search.map(str::to_owned),
+            group_by,
+        };
+
+        {
+            let cache = self.grid_card_cache.borrow();
+            if let Some(cache) = cache.as_ref() {
+                if cache.key == key {
+                    return Arc::clone(&cache.cards);
+                }
+            }
+        }
+
+        let cards =
+            Arc::new(self.build_grid_card_bases(tracks, filtered_track_indices.as_ref(), group_by));
+
+        *self.grid_card_cache.borrow_mut() = Some(CachedGridCardBase {
+            key,
+            cards: Arc::clone(&cards),
+        });
+
+        cards
+    }
+
+    fn build_grid_card_bases(
+        &self,
+        tracks: &[Track],
+        filtered_track_indices: &[usize],
+        group_by: GridGroupBy,
+    ) -> Vec<GridCardBase> {
+        match group_by {
+            GridGroupBy::Track => filtered_track_indices
+                .iter()
+                .filter_map(|&playlist_index| {
+                    tracks
+                        .get(playlist_index)
+                        .map(|track| self.build_track_grid_card_base(track, playlist_index))
+                })
+                .collect(),
+            GridGroupBy::Album | GridGroupBy::Artist | GridGroupBy::AlbumArtist => {
+                self.build_grouped_grid_card_bases(tracks, filtered_track_indices, group_by)
+            }
+        }
+    }
+
+    fn build_track_grid_card_base(&self, track: &Track, playlist_index: usize) -> GridCardBase {
+        let is_in_library = self.library.media.contains_key(&track.path);
+
+        GridCardBase {
+            title: Self::fallback_track_title(track),
+            subtitle: Self::grid_track_subtitle(track, is_in_library),
+            info_text: String::new(),
+            duration_text: Self::format_grid_duration(track.metadata.duration),
+            artwork_filename: track.metadata.artwork_filename.clone(),
+            playlist_indices: Arc::new(vec![playlist_index]),
+            track_ids: Arc::new(vec![track.instance_id()]),
+            has_available_track: is_in_library,
+            has_missing_tracks: !is_in_library,
+        }
+    }
+
+    fn build_grouped_grid_card_bases(
+        &self,
+        tracks: &[Track],
+        filtered_track_indices: &[usize],
+        group_by: GridGroupBy,
+    ) -> Vec<GridCardBase> {
+        let mut group_positions = HashMap::<GridGroupKey, usize>::new();
+        let mut groups = Vec::<GridCardAccumulator>::new();
+
+        for &playlist_index in filtered_track_indices {
+            let Some(track) = tracks.get(playlist_index) else {
+                continue;
+            };
+
+            let key = Self::grid_group_key(track, group_by);
+            let group_index = if let Some(&group_index) = group_positions.get(&key) {
+                group_index
+            } else {
+                let title = match &key {
+                    GridGroupKey::Album { album, .. } => album.clone(),
+                    GridGroupKey::Artist(name) => name.clone(),
+                    GridGroupKey::AlbumArtist(name) => name.clone(),
+                };
+                let subtitle = match &key {
+                    GridGroupKey::Album { album_artist, .. } => album_artist.clone(),
+                    GridGroupKey::Artist(_) | GridGroupKey::AlbumArtist(_) => String::new(),
+                };
+
+                let group_index = groups.len();
+                group_positions.insert(key.clone(), group_index);
+                groups.push(GridCardAccumulator::new(title, subtitle));
+                group_index
+            };
+
+            let group = &mut groups[group_index];
+            group.playlist_indices.push(playlist_index);
+            group.track_ids.push(track.instance_id());
+
+            if group.artwork_filename.is_none() {
+                group.artwork_filename = track.metadata.artwork_filename.clone();
+            }
+
+            if self.library.media.contains_key(&track.path) {
+                group.has_available_track = true;
+            } else {
+                group.has_missing_tracks = true;
+            }
+
+            if let Some(duration) = track.metadata.duration {
+                group.total_duration += duration;
+                group.has_duration = true;
+            }
+
+            group.album_keys.insert(Self::grid_album_identity(track));
+        }
+
+        groups
+            .into_iter()
+            .map(|group| {
+                let track_count = group.playlist_indices.len();
+                let album_count = group.album_keys.len();
+
+                let subtitle = match group_by {
+                    GridGroupBy::Album => {
+                        if group.has_available_track {
+                            group.subtitle
+                        } else {
+                            fl!("not-in-library")
+                        }
+                    }
+                    GridGroupBy::Artist | GridGroupBy::AlbumArtist => {
+                        if group.has_available_track {
+                            Self::grid_album_count_text(album_count)
+                        } else {
+                            fl!("not-in-library")
+                        }
+                    }
+                    GridGroupBy::Track => String::new(),
+                };
+
+                GridCardBase {
+                    title: group.title,
+                    subtitle,
+                    info_text: Self::grid_track_count_text(track_count),
+                    duration_text: Self::format_grid_duration(
+                        group.has_duration.then_some(group.total_duration),
+                    ),
+                    artwork_filename: group.artwork_filename,
+                    playlist_indices: Arc::new(group.playlist_indices),
+                    track_ids: Arc::new(group.track_ids),
+                    has_available_track: group.has_available_track,
+                    has_missing_tracks: group.has_missing_tracks,
+                }
+            })
+            .collect()
+    }
+
+    fn pick_group_playback_index(&self, playlist: &Playlist, indices: &[usize]) -> Option<usize> {
+        let playable_indices: Vec<usize> = indices
+            .iter()
+            .copied()
+            .filter(|&index| {
+                playlist
+                    .tracks()
+                    .get(index)
+                    .map(|track| self.library.media.contains_key(&track.path))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        if playable_indices.is_empty() {
+            return None;
+        }
+
+        if self.state.shuffle {
+            use rand::Rng;
+            let random_index = rand::rng().random_range(0..playable_indices.len());
+            playable_indices.get(random_index).copied()
+        } else {
+            playable_indices.first().copied()
+        }
+    }
+
+    fn non_empty_text(value: Option<&str>) -> Option<String> {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    }
+
+    fn fallback_track_title(track: &Track) -> String {
+        Self::non_empty_text(track.metadata.title.as_deref()).unwrap_or_else(|| {
+            track
+                .path
+                .file_stem()
+                .or_else(|| track.path.file_name())
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_default()
+        })
+    }
+
+    fn metadata_or_unknown(value: Option<&str>, unknown: &str) -> String {
+        Self::non_empty_text(value).unwrap_or_else(|| unknown.to_string())
+    }
+
+    fn grid_track_subtitle(track: &Track, is_in_library: bool) -> String {
+        if !is_in_library {
+            return fl!("not-in-library");
+        }
+
+        let artist = Self::non_empty_text(track.metadata.artist.as_deref())
+            .or_else(|| Self::non_empty_text(track.metadata.album_artist.as_deref()));
+        let album = Self::non_empty_text(track.metadata.album.as_deref());
+
+        match (artist, album) {
+            (Some(artist), Some(album)) => format!("{artist} • {album}"),
+            (Some(artist), None) => artist,
+            (None, Some(album)) => album,
+            (None, None) => String::new(),
+        }
+    }
+
+    fn grid_album_identity(track: &Track) -> String {
+        let album = Self::metadata_or_unknown(track.metadata.album.as_deref(), "Unknown Album");
+        let album_artist = Self::metadata_or_unknown(
+            track
+                .metadata
+                .album_artist
+                .as_deref()
+                .or(track.metadata.artist.as_deref()),
+            "Unknown Album Artist",
+        );
+        format!("{}::{}", album.to_lowercase(), album_artist.to_lowercase())
+    }
+
+    fn grid_group_key(track: &Track, group_by: GridGroupBy) -> GridGroupKey {
+        match group_by {
+            GridGroupBy::Track => unreachable!("track grouping does not use a grouped key"),
+            GridGroupBy::Album => GridGroupKey::Album {
+                album: Self::metadata_or_unknown(track.metadata.album.as_deref(), "Unknown Album"),
+                album_artist: Self::metadata_or_unknown(
+                    track
+                        .metadata
+                        .album_artist
+                        .as_deref()
+                        .or(track.metadata.artist.as_deref()),
+                    "Unknown Album Artist",
+                ),
+            },
+            GridGroupBy::Artist => GridGroupKey::Artist(Self::metadata_or_unknown(
+                track
+                    .metadata
+                    .artist
+                    .as_deref()
+                    .or(track.metadata.album_artist.as_deref()),
+                "Unknown Artist",
+            )),
+            GridGroupBy::AlbumArtist => GridGroupKey::AlbumArtist(Self::metadata_or_unknown(
+                track
+                    .metadata
+                    .album_artist
+                    .as_deref()
+                    .or(track.metadata.artist.as_deref()),
+                "Unknown Album Artist",
+            )),
+        }
+    }
+
+    fn grid_track_count_text(track_count: usize) -> String {
+        if track_count == 1 {
+            "1 track".to_string()
+        } else {
+            format!("{track_count} tracks")
+        }
+    }
+
+    fn grid_album_count_text(album_count: usize) -> String {
+        if album_count == 1 {
+            "1 album".to_string()
+        } else {
+            format!("{album_count} albums")
+        }
+    }
+
+    fn format_grid_duration(duration: Option<f32>) -> String {
+        let Some(duration) = duration else {
+            return String::new();
+        };
+
+        let total_seconds = duration.floor() as u32;
+        let hours = total_seconds / 3600;
+        let minutes = (total_seconds % 3600) / 60;
+        let seconds = total_seconds % 60;
+
+        if hours > 0 {
+            format!("{hours}:{minutes:02}:{seconds:02}")
+        } else {
+            format!("{minutes}:{seconds:02}")
+        }
     }
 
     fn grid_layout_metrics(&self, width: f32) -> GridLayoutMetrics {
@@ -3130,7 +3633,10 @@ impl AppModel {
     }
 
     fn grid_visible_row_count(&self, height: f32) -> usize {
-        let row_stride = self.grid_row_stride();
+        Self::grid_visible_row_count_for_stride(height, self.grid_row_stride())
+    }
+
+    fn grid_visible_row_count_for_stride(height: f32, row_stride: f32) -> usize {
         if row_stride == 0.0 {
             0
         } else {
@@ -3421,6 +3927,96 @@ fn list_column_settings_control<'a>(
         .into()
 }
 
+#[derive(Clone, Eq, PartialEq)]
+struct CachedViewBaseKey {
+    playlist_id: PlaylistId,
+    normalized_search: Option<String>,
+}
+
+struct CachedViewBase {
+    key: CachedViewBaseKey,
+    filtered_track_indices: Arc<Vec<usize>>,
+    selected_track_ids: Arc<Vec<String>>,
+    max_track_number_chars: usize,
+}
+
+#[derive(Clone, Eq, PartialEq)]
+struct CachedGridCardBaseKey {
+    playlist_id: PlaylistId,
+    normalized_search: Option<String>,
+    group_by: GridGroupBy,
+}
+
+struct CachedGridCardBase {
+    key: CachedGridCardBaseKey,
+    cards: Arc<Vec<GridCardBase>>,
+}
+
+#[derive(Clone)]
+struct GridCardBase {
+    title: String,
+    subtitle: String,
+    info_text: String,
+    duration_text: String,
+    artwork_filename: Option<String>,
+    playlist_indices: Arc<Vec<usize>>,
+    track_ids: Arc<Vec<String>>,
+    has_available_track: bool,
+    has_missing_tracks: bool,
+}
+
+#[derive(Clone)]
+pub struct GridCardModel {
+    pub title: String,
+    pub subtitle: String,
+    pub info_text: String,
+    pub duration_text: String,
+    pub artwork_filename: Option<String>,
+    pub playlist_indices: Arc<Vec<usize>>,
+    pub track_ids: Arc<Vec<String>>,
+    pub selected: bool,
+    pub is_playing: bool,
+    pub has_available_track: bool,
+    pub has_missing_tracks: bool,
+}
+
+#[derive(Clone, Eq, Hash, PartialEq)]
+enum GridGroupKey {
+    Album { album: String, album_artist: String },
+    Artist(String),
+    AlbumArtist(String),
+}
+
+struct GridCardAccumulator {
+    title: String,
+    subtitle: String,
+    artwork_filename: Option<String>,
+    playlist_indices: Vec<usize>,
+    track_ids: Vec<String>,
+    has_available_track: bool,
+    has_missing_tracks: bool,
+    total_duration: f32,
+    has_duration: bool,
+    album_keys: HashSet<String>,
+}
+
+impl GridCardAccumulator {
+    fn new(title: String, subtitle: String) -> Self {
+        Self {
+            title,
+            subtitle,
+            artwork_filename: None,
+            playlist_indices: Vec::new(),
+            track_ids: Vec::new(),
+            has_available_track: false,
+            has_missing_tracks: false,
+            total_duration: 0.0,
+            has_duration: false,
+            album_keys: HashSet::new(),
+        }
+    }
+}
+
 struct GridLayoutMetrics {
     artwork_size: f32,
     card_width: f32,
@@ -3433,7 +4029,7 @@ struct GridLayoutMetrics {
 }
 
 pub struct GridViewModel {
-    pub visible_track_indices: Vec<usize>,
+    pub visible_cards: Vec<GridCardModel>,
     pub selected_track_ids: Arc<Vec<String>>,
     pub column_count: usize,
     pub card_width: f32,
@@ -3444,7 +4040,6 @@ pub struct GridViewModel {
     pub view_padding: f32,
     pub top_spacer_height: f32,
     pub bottom_spacer_height: f32,
-    pub is_playing_playlist: bool,
 }
 
 pub struct ListViewModel {

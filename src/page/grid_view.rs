@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0
 
-use crate::app::{AppModel, GridViewModel, Message, SortBy, SortDirection, TrackDropData};
+use crate::app::{AppModel, GridCardModel, Message, SortBy, SortDirection, TrackDropData};
+use crate::config::GridGroupBy;
 use crate::constants::*;
 use crate::fl;
-use crate::playlist::Track;
 use cosmic::{
     Element, cosmic_theme,
     iced::{
@@ -24,6 +24,13 @@ pub fn content<'a>(app: &'a AppModel) -> Element<'a, Message> {
         .padding([space_xxs, GRID_VIEW_PADDING as u16])
         .spacing(space_xxs)
         .align_y(Alignment::Center)
+        .push(widget::text("Group by"))
+        .push(widget::dropdown(
+            grid_group_options(),
+            grid_group_selected(&app.config.grid_group_by),
+            grid_group_message,
+        ))
+        .push(widget::text("Sort by"))
         .push(widget::dropdown(
             grid_sort_options(),
             grid_sort_selected(&app.state.sort_by),
@@ -51,47 +58,53 @@ fn scroll_content_responsive<'a>(app: &'a AppModel, size: Size) -> Element<'a, M
         return empty_scroller(app);
     };
 
-    let Some(active_playlist) = app
-        .view_playlist
-        .and_then(|playlist_id| app.playlist_service.get(playlist_id).ok())
-    else {
-        return empty_scroller(app);
-    };
+    let column_count = view_model.column_count;
+    let card_width = view_model.card_width;
+    let card_height = view_model.card_height;
+    let artwork_size = view_model.artwork_size;
+    let card_padding = view_model.card_padding;
+    let item_spacing = view_model.item_spacing;
+    let view_padding = view_model.view_padding;
+    let top_spacer_height = view_model.top_spacer_height;
+    let bottom_spacer_height = view_model.bottom_spacer_height;
+    let visible_cards = view_model.visible_cards.clone();
+    let selected_track_ids = Arc::clone(&view_model.selected_track_ids);
 
-    let active_tracks = active_playlist.tracks();
     let mut rows = widget::column();
 
-    if view_model.top_spacer_height > 0.0 {
-        rows = rows
-            .push(widget::space::vertical().height(Length::Fixed(view_model.top_spacer_height)));
+    if top_spacer_height > 0.0 {
+        rows = rows.push(widget::space::vertical().height(Length::Fixed(top_spacer_height)));
     }
 
-    let visible_row_total = if view_model.visible_track_indices.is_empty() {
+    let visible_row_total = if visible_cards.is_empty() {
         0
     } else {
-        (view_model.visible_track_indices.len() - 1) / view_model.column_count + 1
+        (visible_cards.len() - 1) / column_count + 1
     };
 
-    for (row_index, row_chunk) in view_model
-        .visible_track_indices
-        .chunks(view_model.column_count)
-        .enumerate()
-    {
+    for (row_index, row_chunk) in visible_cards.chunks(column_count).enumerate() {
         let mut grid_row = widget::row()
-            .padding([0, view_model.view_padding as u16])
+            .padding([0, view_padding as u16])
             .width(Length::Fill)
             .align_y(Alignment::Start);
 
-        for column_index in 0..view_model.column_count {
-            if let Some(&playlist_index) = row_chunk.get(column_index) {
-                let track = &active_tracks[playlist_index];
-                grid_row = grid_row.push(track_card(app, track, &view_model, playlist_index));
+        for column_index in 0..column_count {
+            if let Some(card) = row_chunk.get(column_index) {
+                grid_row = grid_row.push(grid_card(
+                    app,
+                    card.clone(),
+                    Arc::clone(&selected_track_ids),
+                    card_width,
+                    card_height,
+                    artwork_size,
+                    card_padding,
+                ));
             } else {
-                grid_row = grid_row
-                    .push(widget::space::horizontal().width(Length::Fixed(view_model.card_width)));
+                grid_row =
+                    grid_row.push(widget::space::horizontal().width(Length::Fixed(card_width)));
             }
 
-            if column_index + 1 < view_model.column_count {
+            if column_index + 1 < column_count {
                 grid_row = grid_row.push(widget::space::horizontal().width(Length::Fill));
             }
         }
@@ -99,15 +112,12 @@ fn scroll_content_responsive<'a>(app: &'a AppModel, size: Size) -> Element<'a, M
         rows = rows.push(grid_row);
 
         if row_index + 1 < visible_row_total {
-            rows =
-                rows.push(widget::space::vertical().height(Length::Fixed(view_model.item_spacing)));
+            rows = rows.push(widget::space::vertical().height(Length::Fixed(item_spacing)));
         }
     }
 
-    if view_model.bottom_spacer_height > 0.0 {
-        rows = rows.push(
-            widget::space::vertical().height(Length::Fixed(view_model.bottom_spacer_height)),
-        );
+    if bottom_spacer_height > 0.0 {
+        rows = rows.push(widget::space::vertical().height(Length::Fixed(bottom_spacer_height)));
     }
 
     widget::scrollable(rows)
@@ -125,6 +135,33 @@ fn empty_scroller<'a>(app: &'a AppModel) -> Element<'a, Message> {
         .height(Length::Fill)
         .on_scroll(|viewport| Message::GridViewScroll(viewport))
         .into()
+}
+
+fn grid_group_options() -> Vec<String> {
+    vec![
+        "Track".to_string(),
+        fl!("album"),
+        fl!("artist"),
+        fl!("album-artist"),
+    ]
+}
+
+fn grid_group_selected(group_by: &GridGroupBy) -> Option<usize> {
+    match group_by {
+        GridGroupBy::Track => Some(0),
+        GridGroupBy::Album => Some(1),
+        GridGroupBy::Artist => Some(2),
+        GridGroupBy::AlbumArtist => Some(3),
+    }
+}
+
+fn grid_group_message(index: usize) -> Message {
+    Message::GridViewGroupBy(match index {
+        1 => GridGroupBy::Album,
+        2 => GridGroupBy::Artist,
+        3 => GridGroupBy::AlbumArtist,
+        _ => GridGroupBy::Track,
+    })
 }
 
 fn grid_sort_options() -> Vec<String> {
@@ -156,9 +193,7 @@ fn grid_sort_message(index: usize) -> Message {
     })
 }
 
-fn grid_sort_direction_toggle<'a>(
-    active_direction: &SortDirection,
-) -> Element<'a, Message> {
+fn grid_sort_direction_toggle<'a>(active_direction: &SortDirection) -> Element<'a, Message> {
     widget::button::icon(
         widget::icon::from_name(grid_sort_direction_icon_name(active_direction)).size(16),
     )
@@ -183,22 +218,50 @@ fn grid_sort_direction_toggled(direction: &SortDirection) -> SortDirection {
     }
 }
 
-fn track_card<'a>(
+fn grid_card<'a>(
     app: &'a AppModel,
-    track: &Track,
-    view_model: &GridViewModel,
-    playlist_index: usize,
+    card: GridCardModel,
+    selected_track_ids: Arc<Vec<String>>,
+    card_width: f32,
+    card_height: f32,
+    artwork_size: f32,
+    card_padding: f32,
 ) -> Element<'a, Message> {
-    let track_id = track.instance_id();
-    let is_in_library = app.library.media.contains_key(&track.path);
-    let is_playing_track = app.is_track_playing(track, view_model.is_playing_playlist);
-    let title = track_title(track);
-    let subtitle = track_subtitle(track, is_in_library);
-    let duration = format_duration(track.metadata.duration);
+    let GridCardModel {
+        title,
+        subtitle,
+        info_text,
+        duration_text,
+        artwork_filename,
+        playlist_indices,
+        track_ids,
+        selected,
+        is_playing,
+        has_available_track,
+        has_missing_tracks,
+    } = card;
 
-    let artwork = artwork_element(app, track, view_model.artwork_size, is_in_library);
+    if playlist_indices.is_empty() {
+        return widget::space::horizontal()
+            .width(Length::Fixed(card_width))
+            .into();
+    }
 
-    let status_icon: Element<'a, Message> = if is_playing_track {
+    let primary_index = playlist_indices[0];
+    let press_message = if playlist_indices.len() == 1 {
+        Message::ChangeTrack(primary_index)
+    } else {
+        Message::ChangeTracks(Arc::clone(&playlist_indices))
+    };
+    let release_message = if playlist_indices.len() == 1 {
+        Message::ListSelectRow(primary_index)
+    } else {
+        Message::ListSelectRows(Arc::clone(&playlist_indices))
+    };
+
+    let artwork = artwork_element(app, artwork_filename.as_ref(), artwork_size, has_available_track);
+
+    let status_icon: Element<'a, Message> = if is_playing {
         widget::container(
             widget::icon::from_name("media-playback-start-symbolic").size(GRID_STATUS_ICON_SIZE),
         )
@@ -207,7 +270,7 @@ fn track_card<'a>(
         .align_x(Alignment::Center)
         .align_y(Alignment::Center)
         .into()
-    } else if !is_in_library {
+    } else if has_missing_tracks {
         widget::container(
             widget::icon::from_name("help-about-symbolic").size(GRID_STATUS_ICON_SIZE),
         )
@@ -222,15 +285,23 @@ fn track_card<'a>(
             .into()
     };
 
-    let info_row = widget::row()
+    let mut info_row = widget::row()
         .align_y(Alignment::Center)
         .width(Length::Fill)
-        .push(status_icon)
-        .push(widget::space::horizontal().width(Length::Fill))
-        .push(widget::text(duration));
+        .push(status_icon);
+
+    if !info_text.is_empty() {
+        info_row = info_row.push(widget::text(info_text.clone()));
+    }
+
+    info_row = info_row.push(widget::space::horizontal().width(Length::Fill));
+
+    if !duration_text.is_empty() {
+        info_row = info_row.push(widget::text(duration_text.clone()));
+    }
 
     let card_contents = widget::column()
-        .width(Length::Fixed(view_model.card_width))
+        .width(Length::Fixed(card_width))
         .spacing(GRID_CARD_CONTENT_SPACING as u16)
         .align_x(Alignment::Center)
         .push(artwork)
@@ -265,25 +336,24 @@ fn track_card<'a>(
         );
 
     let card = widget::container(card_contents)
-        .width(Length::Fixed(view_model.card_width))
-        .height(Length::Fixed(view_model.card_height))
-        .padding(view_model.card_padding as u16)
+        .width(Length::Fixed(card_width))
+        .height(Length::Fixed(card_height))
+        .padding(card_padding as u16)
         .clip(true);
 
     let row_button = widget::button::custom(card)
-        .class(button_style(track.selected))
-        .on_press_down(Message::ChangeTrack(playlist_index))
+        .class(button_style(selected))
+        .on_press_down(press_message)
         .padding(0)
-        .width(Length::Fixed(view_model.card_width));
+        .width(Length::Fixed(card_width));
 
-    let row_mouse =
-        widget::mouse_area(row_button).on_release(Message::ListSelectRow(playlist_index));
+    let row_mouse = widget::mouse_area(row_button).on_release(release_message.clone());
 
-    let selected_count = view_model.selected_track_ids.len();
-    let drag_count = if track.selected && selected_count > 0 {
+    let selected_count = selected_track_ids.len();
+    let drag_count = if selected && selected_count > 0 {
         selected_count
     } else {
-        1
+        track_ids.len()
     };
     let drag_label = if drag_count == 1 {
         fl!("one-track-selected")
@@ -291,16 +361,16 @@ fn track_card<'a>(
         format!("{drag_count} {}", fl!("tracks-selected"))
     };
 
-    let on_start = if track.selected {
+    let on_start = if selected {
         None
     } else {
-        Some(Message::ListSelectRow(playlist_index))
+        Some(release_message)
     };
 
-    let drag_ids = if track.selected && selected_count > 0 {
-        Arc::clone(&view_model.selected_track_ids)
+    let drag_ids = if selected && selected_count > 0 {
+        selected_track_ids
     } else {
-        Arc::new(vec![track_id.clone()])
+        track_ids
     };
 
     widget::dnd_source::DndSource::new(row_mouse)
@@ -327,11 +397,11 @@ fn track_card<'a>(
 
 fn artwork_element<'a>(
     app: &'a AppModel,
-    track: &Track,
+    artwork_filename: Option<&String>,
     artwork_size: f32,
-    is_in_library: bool,
+    has_available_track: bool,
 ) -> Element<'a, Message> {
-    if let Some(artwork_filename) = &track.metadata.artwork_filename {
+    if let Some(artwork_filename) = artwork_filename {
         app.image_store.request(artwork_filename.clone());
         if let Some(handle) = app.image_store.get(artwork_filename) {
             return widget::container(
@@ -345,7 +415,7 @@ fn artwork_element<'a>(
         }
     }
 
-    let placeholder_icon = if is_in_library {
+    let placeholder_icon = if has_available_track {
         "audio-x-generic-symbolic"
     } else {
         "help-about-symbolic"
@@ -364,74 +434,6 @@ fn artwork_element<'a>(
     .width(Length::Fixed(artwork_size))
     .height(Length::Fixed(artwork_size))
     .into()
-}
-
-fn track_title(track: &Track) -> String {
-    track
-        .metadata
-        .title
-        .as_ref()
-        .filter(|value| !value.trim().is_empty())
-        .cloned()
-        .unwrap_or_else(|| {
-            track
-                .path
-                .file_stem()
-                .or_else(|| track.path.file_name())
-                .map(|value| value.to_string_lossy().to_string())
-                .unwrap_or_default()
-        })
-}
-
-fn track_subtitle(track: &Track, is_in_library: bool) -> String {
-    if !is_in_library {
-        return fl!("not-in-library");
-    }
-
-    let artist = track
-        .metadata
-        .artist
-        .as_ref()
-        .filter(|value| !value.trim().is_empty())
-        .cloned()
-        .or_else(|| {
-            track
-                .metadata
-                .album_artist
-                .as_ref()
-                .filter(|value| !value.trim().is_empty())
-                .cloned()
-        });
-    let album = track
-        .metadata
-        .album
-        .as_ref()
-        .filter(|value| !value.trim().is_empty())
-        .cloned();
-
-    match (artist, album) {
-        (Some(artist), Some(album)) => format!("{artist} • {album}"),
-        (Some(artist), None) => artist,
-        (None, Some(album)) => album,
-        (None, None) => String::new(),
-    }
-}
-
-fn format_duration(duration: Option<f32>) -> String {
-    let Some(duration) = duration else {
-        return String::new();
-    };
-
-    let total_seconds = duration.floor() as u32;
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
-
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes}:{seconds:02}")
-    }
 }
 
 fn button_style(selected: bool) -> theme::Button {

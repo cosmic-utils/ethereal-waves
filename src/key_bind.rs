@@ -40,14 +40,14 @@ pub fn key_binds() -> HashMap<KeyBind, MenuAction> {
 
     key_binds.insert(
         KeyBind {
-            modifiers: vec![Modifier::Ctrl, Modifier::Shift],
+            modifiers: vec![Modifier::Ctrl],
             key: Key::Character("1".into()),
         },
         MenuAction::SetViewMode(ViewMode::List),
     );
     key_binds.insert(
         KeyBind {
-            modifiers: vec![Modifier::Ctrl, Modifier::Shift],
+            modifiers: vec![Modifier::Ctrl],
             key: Key::Character("2".into()),
         },
         MenuAction::SetViewMode(ViewMode::Grid),

@@ -53,6 +53,8 @@ mute = Mute
 unmute = Unmute
 volume-up = Volume Up
 volume-down = Volume Down
+group = Group
+sort = Sort
 
 playlist-duplicates = Playlist Duplicates
 allow = Allow

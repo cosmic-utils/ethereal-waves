@@ -32,6 +32,14 @@ pub enum AppTheme {
     System,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum GridGroupBy {
+    Track,
+    Album,
+    Artist,
+    AlbumArtist,
+}
+
 impl AppTheme {
     pub fn theme(&self) -> theme::Theme {
         match self {
@@ -150,6 +158,7 @@ impl ListColumn {
 pub struct Config {
     pub app_theme: AppTheme,
     pub library_paths: HashSet<String>,
+    pub grid_group_by: GridGroupBy,
     pub list_text_wrap: bool,
     pub list_row_align_top: bool,
     pub list_show_album_column: bool,
@@ -199,6 +208,7 @@ impl Default for Config {
         Self {
             app_theme: AppTheme::System,
             library_paths: HashSet::new(),
+            grid_group_by: GridGroupBy::Track,
             list_text_wrap: true,
             list_row_align_top: false,
             list_show_album_column: true,

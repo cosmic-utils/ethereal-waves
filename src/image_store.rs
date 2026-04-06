@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
+use crate::constants::{IMAGE_CACHE_SWEEP_SECS, IMAGE_CACHE_TTL_SECS};
 use cosmic::widget::image::Handle;
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -37,8 +38,9 @@ impl ImageStore {
                     continue;
                 }
 
-                match fs::read(&path) {
-                    Ok(data) => {
+                let path_for_read = path.clone();
+                match tokio::task::spawn_blocking(move || fs::read(&path_for_read)).await {
+                    Ok(Ok(data)) => {
                         cache_clone.lock().unwrap().insert(
                             path,
                             CachedImage {
@@ -47,16 +49,19 @@ impl ImageStore {
                             },
                         );
                     }
-                    Err(err) => {
+                    Ok(Err(err)) => {
                         eprintln!("Failed to load image: {:?} {}", path, err);
+                    }
+                    Err(err) => {
+                        eprintln!("Failed to join image load task for {:?}: {}", path, err);
                     }
                 }
             }
         });
 
         tokio::spawn(async move {
-            let ttl = Duration::from_secs(20);
-            let sweep_every = Duration::from_secs(10);
+            let ttl = Duration::from_secs(IMAGE_CACHE_TTL_SECS);
+            let sweep_every = Duration::from_secs(IMAGE_CACHE_SWEEP_SECS);
 
             loop {
                 tokio::time::sleep(sweep_every).await;
@@ -90,8 +95,9 @@ impl ImageStore {
             return;
         }
 
-        q.push_back(artwork_path.clone());
-        let _ = self.tx.try_send(artwork_path);
+        if self.tx.try_send(artwork_path.clone()).is_ok() {
+            q.push_back(artwork_path);
+        }
     }
 
     pub fn get(&self, path: &String) -> Option<Arc<Handle>> {
