@@ -959,11 +959,16 @@ impl cosmic::Application for AppModel {
 
                 LibraryProgress::Complete(library) => {
                     self.library = library;
-                    if let Err(e) = self.library_service.save(&self.library) {
+                    let save_result = self.library_service.save(&self.library);
+                    self.update_library_playlist();
+
+                    if let Err(e) = save_result {
                         eprintln!("Error saving library: {}", e);
+                    } else {
+                        let artwork_filenames = self.artwork_filenames_in_use();
+                        self.image_store.cleanup_unused(&artwork_filenames);
                     }
                     self.is_updating = false;
-                    self.update_library_playlist();
                 }
 
                 LibraryProgress::Cancelled => {
@@ -2771,6 +2776,26 @@ impl AppModel {
             let library = lib_playlist.clone();
             self.playback_service.update_session_for_library(&library);
         }
+    }
+
+    fn artwork_filenames_in_use(&self) -> HashSet<String> {
+        let mut artwork_filenames = HashSet::new();
+
+        for metadata in self.library.media.values() {
+            if let Some(artwork_filename) = &metadata.artwork_filename {
+                artwork_filenames.insert(artwork_filename.clone());
+            }
+        }
+
+        for playlist in self.playlist_service.all() {
+            for track in playlist.tracks() {
+                if let Some(artwork_filename) = &track.metadata.artwork_filename {
+                    artwork_filenames.insert(artwork_filename.clone());
+                }
+            }
+        }
+
+        artwork_filenames
     }
 
     fn handle_key_pressed(

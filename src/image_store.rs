@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use cosmic::widget::image::Handle;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -104,6 +104,63 @@ impl ImageStore {
         }
 
         None
+    }
+
+    pub fn cleanup_unused(&self, used_filenames: &HashSet<String>) {
+        let entries = match fs::read_dir(&self.artwork_dir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return,
+            Err(err) => {
+                eprintln!(
+                    "Failed to read artwork cache directory {:?}: {}",
+                    self.artwork_dir, err
+                );
+                return;
+            }
+        };
+
+        let mut removed_paths = HashSet::new();
+
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+
+            if !path.is_file() {
+                continue;
+            }
+
+            let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+
+            if used_filenames.contains(file_name) {
+                continue;
+            }
+
+            match fs::remove_file(&path) {
+                Ok(_) => {
+                    removed_paths.insert(path);
+                }
+                Err(err) => {
+                    eprintln!(
+                        "Failed to remove unused artwork cache file {:?}: {}",
+                        path, err
+                    );
+                }
+            }
+        }
+
+        if removed_paths.is_empty() {
+            return;
+        }
+
+        self.cache
+            .lock()
+            .unwrap()
+            .retain(|path, _| !removed_paths.contains(path));
+        self.queue
+            .lock()
+            .unwrap()
+            .retain(|path| !removed_paths.contains(path));
     }
 }
 
