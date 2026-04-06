@@ -11,7 +11,7 @@ pub const COMPACT_COLUMN_WIDTH: f32 = 96.0;
 pub const DURATION_COLUMN_WIDTH: f32 = 104.0;
 
 /// UI Display Constants
-pub const TRACK_INFO_LIST_TOTAL: usize = 10;
+pub const TRACK_INFO_LIST_TOTAL: usize = 100;
 pub const SEARCH_INPUT_WIDTH: f32 = 240.0;
 
 /// File System Constants
