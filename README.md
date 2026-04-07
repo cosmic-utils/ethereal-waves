@@ -6,6 +6,7 @@ A basic music player based on libcosmic. It's still very much a work in progress
 ![Ethereal Waves - Light Mode](https://github.com/LotusPetal392/ethereal-waves/blob/b970a4506b73b681b760d581c70f30d3a7eeed4b/screenshots/Ethereal%20Waves%20-%20Light%20Mode.png?raw=true)
 
 ## Supported Formats
+
 - MP3
 - M4A
 - Ogg
@@ -14,22 +15,24 @@ A basic music player based on libcosmic. It's still very much a work in progress
 - Wav
 
 ## Planned Features
+
 Non-exhaustive list of planned features in no particular order:
+
 - [x] Gapless playback
 - [ ] Crossfading between tracks
-- [ ] Grid view
-- [ ] More column options in list view
+- [x] Grid view
+- [x] More column options in list view (calling this complete for the time being)
 - [ ] Import / Export .m3u playlists
-- [ ] Improved MPRIS support (much improved but not entirely complete)
+- [ ] MPRIS support (much improved but not entirely complete)
 - [ ] Sorting options
 - [ ] Shuffle modes
-- [x] Condensed responsive layout (it's possible the list view may be made responsive later)
-- [ ] More keyboard shortcuts
+- [x] Condensed responsive layout (possibly may build on this later)
 - [x] Drag and drop support (your milage may vary outside of cosmic-comp)
 - [x] Playlist duplicate management
 - [ ] Partial update (Only add new tracks)
 
 ## Keybindings
+
 - `Ctrl + U`: Update Library
 - `Ctrl + Q`: Quit
 - `Ctrl + N`: New Playlist
@@ -50,12 +53,15 @@ Non-exhaustive list of planned features in no particular order:
 - `=`: Volume Up and Unmute
 
 ## Installation
+
 This project uses `just` for building. To run development mode:
+
 ```
 just run-dev
 ```
 
 To install:
+
 ```
 sudo apt install just
 ```
