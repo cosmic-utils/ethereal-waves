@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
-use crate::app::{AppModel, MenuAction, Message};
+use crate::app::{AppModel, MenuAction, Message, ViewMode};
 use crate::constants::MENU_WIDGET_ID;
 use crate::fl;
 use crate::playback_state::RepeatMode;
@@ -33,6 +33,8 @@ pub fn menu_bar<'a>(app: &AppModel) -> Element<'a, Message> {
 
     let repeat_one = app.state.repeat_mode == RepeatMode::One;
     let repeat_all = app.state.repeat_mode == RepeatMode::All;
+    let list_view = app.config.view_mode == ViewMode::List;
+    let grid_view = app.config.view_mode == ViewMode::Grid;
 
     let mut selected_playlist_list = Vec::new();
     let mut now_playing_playlist_list = Vec::new();
@@ -156,6 +158,19 @@ pub fn menu_bar<'a>(app: &AppModel) -> Element<'a, Message> {
     ];
 
     let view_items = vec![
+        menu::Item::CheckBox(
+            fl!("list-view"),
+            None,
+            list_view,
+            MenuAction::SetViewMode(ViewMode::List),
+        ),
+        menu::Item::CheckBox(
+            fl!("grid-view"),
+            None,
+            grid_view,
+            MenuAction::SetViewMode(ViewMode::Grid),
+        ),
+        menu::Item::Divider,
         menu::Item::Button(fl!("zoom-in"), None, MenuAction::ZoomIn),
         menu::Item::Button(fl!("zoom-out"), None, MenuAction::ZoomOut),
         menu::Item::Divider,
