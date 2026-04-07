@@ -2,8 +2,8 @@
 
 A basic music player based on libcosmic. It's still very much a work in progress.
 
-![Ethereal Waves - Dark Mode](https://github.com/LotusPetal392/ethereal-waves/blob/b970a4506b73b681b760d581c70f30d3a7eeed4b/screenshots/Ethereal%20Waves%20-%20Dark%20Mode.png?raw=true)
-![Ethereal Waves - Light Mode](https://github.com/LotusPetal392/ethereal-waves/blob/b970a4506b73b681b760d581c70f30d3a7eeed4b/screenshots/Ethereal%20Waves%20-%20Light%20Mode.png?raw=true)
+![Ethereal Waves - Dark Mode](https://github.com/cosmic-utils/ethereal-waves/blob/e376ce81ddfe7b3fb4357b9e882d33586102b13b/screenshots/Ethereal%20Waves%20-%20Dark%20Mode.png?raw=true)
+![Ethereal Waves - Light Mode](https://github.com/cosmic-utils/ethereal-waves/blob/e376ce81ddfe7b3fb4357b9e882d33586102b13b/screenshots/Ethereal%20Waves%20-%20Light%20Mode.png?raw=true)
 
 ## Supported Formats
 
