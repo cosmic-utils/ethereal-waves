@@ -174,6 +174,7 @@ pub struct Config {
     pub list_show_track_total_column: bool,
     pub list_column_order: Vec<ListColumn>,
     pub title_sort: TitleSortMode,
+    pub sort_case_sensitive: bool,
     pub playlist_duplicate_policy: PlaylistDuplicatePolicy,
     pub view_mode: ViewMode,
 }
@@ -224,6 +225,7 @@ impl Default for Config {
             list_show_track_total_column: false,
             list_column_order: ListColumn::default_order(),
             title_sort: TitleSortMode::Alphabetical,
+            sort_case_sensitive: false,
             playlist_duplicate_policy: PlaylistDuplicatePolicy::Allow,
             view_mode: ViewMode::List,
         }

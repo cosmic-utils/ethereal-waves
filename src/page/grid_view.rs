@@ -24,18 +24,20 @@ pub fn content<'a>(app: &'a AppModel) -> Element<'a, Message> {
         .padding([space_xxs, GRID_VIEW_PADDING as u16])
         .spacing(space_xxs)
         .align_y(Alignment::Center)
-        .push(widget::text("Group by"))
+        .push(widget::text(fl!("group-by")))
         .push(widget::dropdown(
             grid_group_options(),
             grid_group_selected(&app.config.grid_group_by),
             grid_group_message,
         ))
-        .push(widget::text("Sort by"))
+        .push(widget::divider::vertical::default().height(Length::Fixed(20.0)))
+        .push(widget::text(fl!("sort-by")))
         .push(widget::dropdown(
             grid_sort_options(),
             grid_sort_selected(&app.state.sort_by),
             grid_sort_message,
         ))
+        .push(widget::divider::vertical::default().height(Length::Fixed(20.0)))
         .push(grid_sort_direction_toggle(&app.state.sort_direction));
 
     widget::column()
@@ -198,9 +200,9 @@ fn grid_sort_direction_toggle<'a>(active_direction: &SortDirection) -> Element<'
         widget::icon::from_name(grid_sort_direction_icon_name(active_direction)).size(16),
     )
     .extra_small()
-    .on_press(Message::GridViewSortDirection(
-        grid_sort_direction_toggled(active_direction),
-    ))
+    .on_press(Message::GridViewSortDirection(grid_sort_direction_toggled(
+        active_direction,
+    )))
     .into()
 }
 
@@ -259,7 +261,12 @@ fn grid_card<'a>(
         Message::ListSelectRows(Arc::clone(&playlist_indices))
     };
 
-    let artwork = artwork_element(app, artwork_filename.as_ref(), artwork_size, has_available_track);
+    let artwork = artwork_element(
+        app,
+        artwork_filename.as_ref(),
+        artwork_size,
+        has_available_track,
+    );
 
     let status_icon: Element<'a, Message> = if is_playing {
         widget::container(

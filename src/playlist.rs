@@ -76,44 +76,64 @@ impl Playlist {
         sort_by: SortBy,
         sort_direction: SortDirection,
         title_sort: TitleSortMode,
+        case_sensitive: bool,
     ) {
         self.tracks.sort_by(|a, b| {
             let ordering = match sort_by {
-                SortBy::Artist => a
-                    .metadata
-                    .artist
-                    .cmp(&b.metadata.artist)
-                    .then(a.metadata.album.cmp(&b.metadata.album))
-                    .then_with(|| compare_title(a, b, title_sort)),
+                SortBy::Artist => compare_optional_text(
+                    a.metadata.artist.as_deref(),
+                    b.metadata.artist.as_deref(),
+                    case_sensitive,
+                )
+                .then(compare_optional_text(
+                    a.metadata.album.as_deref(),
+                    b.metadata.album.as_deref(),
+                    case_sensitive,
+                ))
+                .then_with(|| compare_title(a, b, title_sort, case_sensitive)),
 
-                SortBy::Album => a
-                    .metadata
-                    .album
-                    .cmp(&b.metadata.album)
-                    .then_with(|| compare_title(a, b, title_sort)),
+                SortBy::Album => compare_optional_text(
+                    a.metadata.album.as_deref(),
+                    b.metadata.album.as_deref(),
+                    case_sensitive,
+                )
+                .then_with(|| compare_title(a, b, title_sort, case_sensitive)),
 
-                SortBy::AlbumArtist => a
-                    .metadata
-                    .album_artist
-                    .cmp(&b.metadata.album_artist)
-                    .then(a.metadata.album.cmp(&b.metadata.album))
-                    .then_with(|| compare_title(a, b, title_sort)),
+                SortBy::AlbumArtist => compare_optional_text(
+                    a.metadata.album_artist.as_deref(),
+                    b.metadata.album_artist.as_deref(),
+                    case_sensitive,
+                )
+                .then(compare_optional_text(
+                    a.metadata.album.as_deref(),
+                    b.metadata.album.as_deref(),
+                    case_sensitive,
+                ))
+                .then_with(|| compare_title(a, b, title_sort, case_sensitive)),
 
-                SortBy::Title => a.metadata.title.cmp(&b.metadata.title),
+                SortBy::Title => compare_optional_text(
+                    a.metadata.title.as_deref(),
+                    b.metadata.title.as_deref(),
+                    case_sensitive,
+                ),
 
                 SortBy::TrackTotal => a
                     .metadata
                     .track_count
                     .cmp(&b.metadata.track_count)
-                    .then(a.metadata.album.cmp(&b.metadata.album))
-                    .then_with(|| compare_title(a, b, title_sort)),
+                    .then(compare_optional_text(
+                        a.metadata.album.as_deref(),
+                        b.metadata.album.as_deref(),
+                        case_sensitive,
+                    ))
+                    .then_with(|| compare_title(a, b, title_sort, case_sensitive)),
 
                 SortBy::DiscNumber => a
                     .metadata
                     .album_disc_number
                     .cmp(&b.metadata.album_disc_number)
                     .then(a.metadata.track_number.cmp(&b.metadata.track_number))
-                    .then_with(|| compare_title(a, b, title_sort)),
+                    .then_with(|| compare_title(a, b, title_sort, case_sensitive)),
 
                 SortBy::DiscTotal => a
                     .metadata
@@ -125,20 +145,29 @@ impl Playlist {
                             .cmp(&b.metadata.album_disc_number),
                     )
                     .then(a.metadata.track_number.cmp(&b.metadata.track_number))
-                    .then_with(|| compare_title(a, b, title_sort)),
+                    .then_with(|| compare_title(a, b, title_sort, case_sensitive)),
 
-                SortBy::Genre => a
-                    .metadata
-                    .genre
-                    .cmp(&b.metadata.genre)
-                    .then(a.metadata.artist.cmp(&b.metadata.artist))
-                    .then(a.metadata.album.cmp(&b.metadata.album))
-                    .then_with(|| compare_title(a, b, title_sort)),
+                SortBy::Genre => compare_optional_text(
+                    a.metadata.genre.as_deref(),
+                    b.metadata.genre.as_deref(),
+                    case_sensitive,
+                )
+                .then(compare_optional_text(
+                    a.metadata.artist.as_deref(),
+                    b.metadata.artist.as_deref(),
+                    case_sensitive,
+                ))
+                .then(compare_optional_text(
+                    a.metadata.album.as_deref(),
+                    b.metadata.album.as_deref(),
+                    case_sensitive,
+                ))
+                .then_with(|| compare_title(a, b, title_sort, case_sensitive)),
 
-                SortBy::FilePath => a.path.cmp(&b.path),
+                SortBy::FilePath => compare_path(&a.path, &b.path, case_sensitive),
 
                 SortBy::Duration => compare_optional_f32(a.metadata.duration, b.metadata.duration)
-                    .then_with(|| compare_title(a, b, title_sort)),
+                    .then_with(|| compare_title(a, b, title_sort, case_sensitive)),
             };
 
             match sort_direction {
@@ -257,15 +286,61 @@ impl Track {
     }
 }
 
-fn compare_title(a: &Track, b: &Track, title_sort: TitleSortMode) -> Ordering {
+fn compare_title(
+    a: &Track,
+    b: &Track,
+    title_sort: TitleSortMode,
+    case_sensitive: bool,
+) -> Ordering {
     match title_sort {
-        TitleSortMode::Alphabetical => a.metadata.title.cmp(&b.metadata.title),
+        TitleSortMode::Alphabetical => compare_optional_text(
+            a.metadata.title.as_deref(),
+            b.metadata.title.as_deref(),
+            case_sensitive,
+        ),
         TitleSortMode::TrackNumber => a
             .metadata
             .album_disc_number
             .cmp(&b.metadata.album_disc_number)
             .then(a.metadata.track_number.cmp(&b.metadata.track_number))
-            .then_with(|| a.metadata.title.cmp(&b.metadata.title)),
+            .then_with(|| {
+                compare_optional_text(
+                    a.metadata.title.as_deref(),
+                    b.metadata.title.as_deref(),
+                    case_sensitive,
+                )
+            }),
+    }
+}
+
+fn compare_optional_text(a: Option<&str>, b: Option<&str>, case_sensitive: bool) -> Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => compare_text(a, b, case_sensitive),
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+    }
+}
+
+fn compare_text(a: &str, b: &str, case_sensitive: bool) -> Ordering {
+    if case_sensitive {
+        a.cmp(b)
+    } else {
+        a.chars()
+            .flat_map(char::to_lowercase)
+            .cmp(b.chars().flat_map(char::to_lowercase))
+            .then_with(|| a.cmp(b))
+    }
+}
+
+fn compare_path(a: &PathBuf, b: &PathBuf, case_sensitive: bool) -> Ordering {
+    if case_sensitive {
+        a.cmp(b)
+    } else {
+        let a_path = a.to_string_lossy();
+        let b_path = b.to_string_lossy();
+
+        compare_text(a_path.as_ref(), b_path.as_ref(), false).then_with(|| a.cmp(b))
     }
 }
 

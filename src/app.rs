@@ -207,6 +207,7 @@ pub enum Message {
     ToggleListGenreColumn(bool),
     ToggleListRowAlignTop(bool),
     ToggleListTextWrap(bool),
+    ToggleSortCaseSensitive(bool),
     ToggleListTitleColumn(bool),
     ToggleListTrackNumberColumn(bool),
     ToggleListTrackTotalColumn(bool),
@@ -1638,6 +1639,17 @@ impl cosmic::Application for AppModel {
 
             Message::TitleSort(title_sort) => {
                 config_set!(title_sort, title_sort);
+                self.config.title_sort = title_sort;
+                self.sort_all_playlists();
+            }
+
+            Message::ToggleSortCaseSensitive(sort_case_sensitive) => {
+                if self.config.sort_case_sensitive == sort_case_sensitive {
+                    return Task::none();
+                }
+
+                config_set!(sort_case_sensitive, sort_case_sensitive);
+                self.config.sort_case_sensitive = sort_case_sensitive;
                 self.sort_all_playlists();
             }
 
@@ -2188,7 +2200,6 @@ impl AppModel {
             TitleSortMode::Alphabetical => 0,
             TitleSortMode::TrackNumber => 1,
         };
-
         let mut library_column = widget::column();
 
         library_column = library_column.push(
@@ -2237,8 +2248,8 @@ impl AppModel {
         }
 
         let ordered_columns = self.config.normalized_list_column_order();
-        let mut list_view_section = settings::section()
-            .title(fl!("list-view"))
+        let sorting_section = settings::section()
+            .title("Sorting")
             .add({
                 settings::item::builder(fl!("title-sort")).control(widget::dropdown(
                     &self.title_sort_labels,
@@ -2251,6 +2262,15 @@ impl AppModel {
                     },
                 ))
             })
+            .add({
+                settings::item::builder("Case-sensitive sort").control(
+                    toggler(self.config.sort_case_sensitive)
+                        .on_toggle(Message::ToggleSortCaseSensitive),
+                )
+            });
+
+        let mut list_view_section = settings::section()
+            .title(fl!("list-view"))
             .add({
                 settings::item::builder(fl!("wrap-text")).control(
                     toggler(self.config.list_text_wrap).on_toggle(Message::ToggleListTextWrap),
@@ -2294,7 +2314,7 @@ impl AppModel {
                     ))
                 })
                 .into(),
-            settings::section().title(fl!("view")).into(),
+            sorting_section.into(),
             settings::section()
                 .title(fl!("playlist"))
                 .add({
@@ -2456,6 +2476,7 @@ impl AppModel {
                     self.state.sort_by.clone(),
                     self.state.sort_direction.clone(),
                     self.config.title_sort,
+                    self.config.sort_case_sensitive,
                 );
             }
         }
@@ -2995,10 +3016,16 @@ impl AppModel {
         let sort_by = self.state.sort_by.clone();
         let sort_direction = self.state.sort_direction.clone();
         let title_sort = self.config.title_sort;
+        let sort_case_sensitive = self.config.sort_case_sensitive;
 
         for id in playlist_ids {
             if let Ok(playlist) = self.playlist_service.get_mut(id) {
-                playlist.sort(sort_by.clone(), sort_direction.clone(), title_sort);
+                playlist.sort(
+                    sort_by.clone(),
+                    sort_direction.clone(),
+                    title_sort,
+                    sort_case_sensitive,
+                );
             }
         }
 
@@ -3018,6 +3045,7 @@ impl AppModel {
                 self.state.sort_by.clone(),
                 self.state.sort_direction.clone(),
                 self.config.title_sort,
+                self.config.sort_case_sensitive,
             );
 
             let library = lib_playlist.clone();
