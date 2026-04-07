@@ -196,14 +196,58 @@ fn grid_sort_message(index: usize) -> Message {
 }
 
 fn grid_sort_direction_toggle<'a>(active_direction: &SortDirection) -> Element<'a, Message> {
-    widget::button::icon(
-        widget::icon::from_name(grid_sort_direction_icon_name(active_direction)).size(16),
+    let cosmic_theme::Spacing { space_xxs, .. } = theme::active().cosmic().spacing;
+
+    let icon = widget::icon::from_name(grid_sort_direction_icon_name(active_direction))
+        .icon()
+        .size(16)
+        .class(theme::Svg::custom(|theme| {
+            cosmic::iced::widget::svg::Style {
+                color: Some(Color::from(theme.cosmic().on_bg_color())),
+            }
+        }));
+
+    widget::button::custom(
+        widget::container(icon)
+            .width(Length::Fixed(28.0))
+            .height(Length::Fixed(28.0))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill),
     )
-    .extra_small()
+    .padding(space_xxs)
+    .class(grid_sort_button_style())
     .on_press(Message::GridViewSortDirection(grid_sort_direction_toggled(
         active_direction,
     )))
     .into()
+}
+
+fn grid_sort_button_style() -> theme::Button {
+    theme::Button::Custom {
+        active: Box::new(|_focus, theme| grid_sort_button_appearance(theme, false)),
+        disabled: Box::new(|theme| grid_sort_button_appearance(theme, false)),
+        hovered: Box::new(|_focus, theme| grid_sort_button_appearance(theme, true)),
+        pressed: Box::new(|_focus, theme| grid_sort_button_appearance(theme, true)),
+    }
+}
+
+fn grid_sort_button_appearance(theme: &theme::Theme, hovered: bool) -> widget::button::Style {
+    let cosmic = theme.cosmic();
+    let mut appearance = widget::button::Style::new();
+
+    if hovered {
+        appearance.background = Some(Color::from(cosmic.bg_component_color()).into());
+        appearance.icon_color = Some(Color::from(cosmic.on_bg_component_color()));
+        appearance.text_color = Some(Color::from(cosmic.on_bg_component_color()));
+    } else {
+        appearance.background = Some(Color::TRANSPARENT.into());
+        appearance.icon_color = Some(Color::from(cosmic.on_bg_color()));
+        appearance.text_color = Some(Color::from(cosmic.on_bg_color()));
+    }
+
+    // appearance.outline_width = 0.0;
+    // appearance.border_width = 0.0;
+    appearance
 }
 
 fn grid_sort_direction_icon_name(direction: &SortDirection) -> &'static str {
