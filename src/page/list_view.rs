@@ -4,6 +4,7 @@ use crate::app::{AppModel, Message, SortBy, TrackDropData};
 use crate::config::ListColumn;
 use crate::constants::*;
 use crate::fl;
+use crate::helpers::{format_optional_duration, optional_display};
 use crate::playlist::Track;
 use cosmic::{
     cosmic_theme,
@@ -88,7 +89,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
     for (index, playlist_index) in view_model.visible_track_indices.iter().copied().enumerate() {
         let track = &active_tracks[playlist_index];
         let track_id = track.instance_id();
-        let is_playing_track = app.is_track_playing(track, &view_model);
+        let is_playing_track = app.is_track_playing(track, view_model.is_playing_playlist);
 
         let mut row_element = widget::row()
             .spacing(space_xxs)
@@ -281,11 +282,7 @@ fn list_column_cell<'a>(
 ) -> cosmic::Element<'a, Message> {
     match column {
         ListColumn::TrackNumber => compact_text_cell(
-            track
-                .metadata
-                .track_number
-                .map(|track_number| track_number.to_string())
-                .unwrap_or_default(),
+            optional_display(track.metadata.track_number),
             list_column_width(column, track_number_column_width),
             view_model,
         ),
@@ -314,29 +311,17 @@ fn list_column_cell<'a>(
             view_model,
         ),
         ListColumn::TrackTotal => compact_text_cell(
-            track
-                .metadata
-                .track_count
-                .map(|track_total| track_total.to_string())
-                .unwrap_or_default(),
+            optional_display(track.metadata.track_count),
             list_column_width(column, track_number_column_width),
             view_model,
         ),
         ListColumn::DiscNumber => compact_text_cell(
-            track
-                .metadata
-                .album_disc_number
-                .map(|disc_number| disc_number.to_string())
-                .unwrap_or_default(),
+            optional_display(track.metadata.album_disc_number),
             list_column_width(column, track_number_column_width),
             view_model,
         ),
         ListColumn::DiscTotal => compact_text_cell(
-            track
-                .metadata
-                .album_disc_count
-                .map(|disc_total| disc_total.to_string())
-                .unwrap_or_default(),
+            optional_display(track.metadata.album_disc_count),
             list_column_width(column, track_number_column_width),
             view_model,
         ),
@@ -351,7 +336,7 @@ fn list_column_cell<'a>(
             view_model,
         ),
         ListColumn::Duration => compact_text_cell(
-            format_duration(track.metadata.duration),
+            format_optional_duration(track.metadata.duration),
             list_column_width(column, track_number_column_width),
             view_model,
         ),
@@ -420,23 +405,6 @@ fn compact_text_cell<'a>(
     .width(width)
     .clip(true)
     .into()
-}
-
-fn format_duration(duration: Option<f32>) -> String {
-    let Some(duration) = duration else {
-        return String::new();
-    };
-
-    let total_seconds = duration.floor() as u32;
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
-
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes}:{seconds:02}")
-    }
 }
 
 // Helper function for sort buttons

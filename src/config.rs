@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
-use crate::app::{AppModel, SortBy, SortDirection};
+use crate::app::{AppModel, SortBy, SortDirection, ViewMode};
 use crate::playback_state::RepeatMode;
 use cosmic::{
     Application,
@@ -30,6 +30,14 @@ pub enum AppTheme {
     Dark,
     Light,
     System,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum GridGroupBy {
+    Track,
+    Album,
+    Artist,
+    AlbumArtist,
 }
 
 impl AppTheme {
@@ -150,6 +158,7 @@ impl ListColumn {
 pub struct Config {
     pub app_theme: AppTheme,
     pub library_paths: HashSet<String>,
+    pub grid_group_by: GridGroupBy,
     pub list_text_wrap: bool,
     pub list_row_align_top: bool,
     pub list_show_album_column: bool,
@@ -165,7 +174,9 @@ pub struct Config {
     pub list_show_track_total_column: bool,
     pub list_column_order: Vec<ListColumn>,
     pub title_sort: TitleSortMode,
+    pub sort_case_sensitive: bool,
     pub playlist_duplicate_policy: PlaylistDuplicatePolicy,
+    pub view_mode: ViewMode,
 }
 
 impl Config {
@@ -198,6 +209,7 @@ impl Default for Config {
         Self {
             app_theme: AppTheme::System,
             library_paths: HashSet::new(),
+            grid_group_by: GridGroupBy::Track,
             list_text_wrap: true,
             list_row_align_top: false,
             list_show_album_column: true,
@@ -213,7 +225,9 @@ impl Default for Config {
             list_show_track_total_column: false,
             list_column_order: ListColumn::default_order(),
             title_sort: TitleSortMode::Alphabetical,
+            sort_case_sensitive: false,
             playlist_duplicate_policy: PlaylistDuplicatePolicy::Allow,
+            view_mode: ViewMode::List,
         }
     }
 }
@@ -226,7 +240,8 @@ pub struct State {
     pub repeat: bool,
     pub repeat_mode: RepeatMode,
     pub shuffle: bool,
-    pub size_multiplier: f32,
+    pub list_size_multiplier: Option<f32>,
+    pub grid_size_multiplier: Option<f32>,
     pub sort_by: SortBy,
     pub sort_direction: SortDirection,
     pub volume: i32,
@@ -242,7 +257,8 @@ impl Default for State {
             repeat: false,
             repeat_mode: RepeatMode::All,
             shuffle: false,
-            size_multiplier: 8.0,
+            list_size_multiplier: None,
+            grid_size_multiplier: None,
             sort_by: SortBy::Artist,
             sort_direction: SortDirection::Ascending,
             volume: 100,
@@ -253,6 +269,18 @@ impl Default for State {
 }
 
 impl State {
+    pub const DEFAULT_SIZE_MULTIPLIER: f32 = 8.0;
+
+    pub fn effective_list_size_multiplier(&self) -> f32 {
+        self.list_size_multiplier
+            .unwrap_or(Self::DEFAULT_SIZE_MULTIPLIER)
+    }
+
+    pub fn effective_grid_size_multiplier(&self) -> f32 {
+        self.grid_size_multiplier
+            .unwrap_or(Self::DEFAULT_SIZE_MULTIPLIER)
+    }
+
     pub fn load() -> (Option<cosmic_config::Config>, Self) {
         match cosmic_config::Config::new_state(AppModel::APP_ID, CONFIG_VERSION) {
             Ok(config_handler) => {

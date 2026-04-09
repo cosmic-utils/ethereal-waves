@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
 
+use crate::constants::{IMAGE_CACHE_SWEEP_SECS, IMAGE_CACHE_TTL_SECS};
 use cosmic::widget::image::Handle;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -37,8 +38,9 @@ impl ImageStore {
                     continue;
                 }
 
-                match fs::read(&path) {
-                    Ok(data) => {
+                let path_for_read = path.clone();
+                match tokio::task::spawn_blocking(move || fs::read(&path_for_read)).await {
+                    Ok(Ok(data)) => {
                         cache_clone.lock().unwrap().insert(
                             path,
                             CachedImage {
@@ -47,16 +49,19 @@ impl ImageStore {
                             },
                         );
                     }
-                    Err(err) => {
+                    Ok(Err(err)) => {
                         eprintln!("Failed to load image: {:?} {}", path, err);
+                    }
+                    Err(err) => {
+                        eprintln!("Failed to join image load task for {:?}: {}", path, err);
                     }
                 }
             }
         });
 
         tokio::spawn(async move {
-            let ttl = Duration::from_secs(20);
-            let sweep_every = Duration::from_secs(10);
+            let ttl = Duration::from_secs(IMAGE_CACHE_TTL_SECS);
+            let sweep_every = Duration::from_secs(IMAGE_CACHE_SWEEP_SECS);
 
             loop {
                 tokio::time::sleep(sweep_every).await;
@@ -90,8 +95,9 @@ impl ImageStore {
             return;
         }
 
-        q.push_back(artwork_path.clone());
-        let _ = self.tx.try_send(artwork_path);
+        if self.tx.try_send(artwork_path.clone()).is_ok() {
+            q.push_back(artwork_path);
+        }
     }
 
     pub fn get(&self, path: &String) -> Option<Arc<Handle>> {
@@ -104,6 +110,63 @@ impl ImageStore {
         }
 
         None
+    }
+
+    pub fn cleanup_unused(&self, used_filenames: &HashSet<String>) {
+        let entries = match fs::read_dir(&self.artwork_dir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return,
+            Err(err) => {
+                eprintln!(
+                    "Failed to read artwork cache directory {:?}: {}",
+                    self.artwork_dir, err
+                );
+                return;
+            }
+        };
+
+        let mut removed_paths = HashSet::new();
+
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+
+            if !path.is_file() {
+                continue;
+            }
+
+            let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+
+            if used_filenames.contains(file_name) {
+                continue;
+            }
+
+            match fs::remove_file(&path) {
+                Ok(_) => {
+                    removed_paths.insert(path);
+                }
+                Err(err) => {
+                    eprintln!(
+                        "Failed to remove unused artwork cache file {:?}: {}",
+                        path, err
+                    );
+                }
+            }
+        }
+
+        if removed_paths.is_empty() {
+            return;
+        }
+
+        self.cache
+            .lock()
+            .unwrap()
+            .retain(|path, _| !removed_paths.contains(path));
+        self.queue
+            .lock()
+            .unwrap()
+            .retain(|path| !removed_paths.contains(path));
     }
 }
 
