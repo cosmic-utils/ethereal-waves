@@ -115,7 +115,8 @@ pub struct AppModel {
 
     dialog_pages: DialogPages,
 
-    size_multiplier: f32,
+    list_size_multiplier: f32,
+    grid_size_multiplier: f32,
     pub list_scroll_id: widget::Id,
     pub list_start: usize,
     pub list_visible_row_count: usize,
@@ -323,7 +324,8 @@ impl cosmic::Application for AppModel {
             update_percent: 0.0,
             update_progress_display: "0".into(),
             dialog_pages: DialogPages::new(),
-            size_multiplier: _flags.state.size_multiplier,
+            list_size_multiplier: _flags.state.effective_list_size_multiplier(),
+            grid_size_multiplier: _flags.state.effective_grid_size_multiplier(),
             list_scroll_id: widget::Id::unique(),
             list_start: 0,
             list_visible_row_count: 0,
@@ -1187,8 +1189,11 @@ impl cosmic::Application for AppModel {
                 let scroll_offset = viewport.absolute_offset().y;
                 let viewport_height = viewport.bounds().height;
 
-                let row_stride =
-                    calculate_row_stride(self.size_multiplier, BASE_ROW_HEIGHT, DIVIDER_HEIGHT);
+                let row_stride = calculate_row_stride(
+                    self.list_size_multiplier,
+                    BASE_ROW_HEIGHT,
+                    DIVIDER_HEIGHT,
+                );
 
                 let requested_list_start = if scroll_offset == 0.0 || row_stride == 0.0 {
                     0
@@ -1864,23 +1869,43 @@ impl cosmic::Application for AppModel {
                 state_set!(window_height, window_height);
             }
 
-            Message::ZoomIn => {
-                self.size_multiplier = clamp(
-                    self.size_multiplier + ZOOM_STEP,
-                    MIN_SIZE_MULTIPLIER,
-                    MAX_SIZE_MULTIPLIER,
-                );
-                state_set!(size_multiplier, self.size_multiplier);
-            }
+            Message::ZoomIn => match self.config.view_mode {
+                ViewMode::List => {
+                    self.list_size_multiplier = clamp(
+                        self.list_size_multiplier + ZOOM_STEP,
+                        LIST_MIN_SIZE_MULTIPLIER,
+                        LIST_MAX_SIZE_MULTIPLIER,
+                    );
+                    state_set!(list_size_multiplier, Some(self.list_size_multiplier));
+                }
+                ViewMode::Grid => {
+                    self.grid_size_multiplier = clamp(
+                        self.grid_size_multiplier + ZOOM_STEP,
+                        GRID_MIN_SIZE_MULTIPLIER,
+                        GRID_MAX_SIZE_MULTIPLIER,
+                    );
+                    state_set!(grid_size_multiplier, Some(self.grid_size_multiplier));
+                }
+            },
 
-            Message::ZoomOut => {
-                self.size_multiplier = clamp(
-                    self.size_multiplier - ZOOM_STEP,
-                    MIN_SIZE_MULTIPLIER,
-                    MAX_SIZE_MULTIPLIER,
-                );
-                state_set!(size_multiplier, self.size_multiplier);
-            }
+            Message::ZoomOut => match self.config.view_mode {
+                ViewMode::List => {
+                    self.list_size_multiplier = clamp(
+                        self.list_size_multiplier - ZOOM_STEP,
+                        LIST_MIN_SIZE_MULTIPLIER,
+                        LIST_MAX_SIZE_MULTIPLIER,
+                    );
+                    state_set!(list_size_multiplier, Some(self.list_size_multiplier));
+                }
+                ViewMode::Grid => {
+                    self.grid_size_multiplier = clamp(
+                        self.grid_size_multiplier - ZOOM_STEP,
+                        GRID_MIN_SIZE_MULTIPLIER,
+                        GRID_MAX_SIZE_MULTIPLIER,
+                    );
+                    state_set!(grid_size_multiplier, Some(self.grid_size_multiplier));
+                }
+            },
         }
         Task::none()
     }
@@ -2807,9 +2832,9 @@ impl AppModel {
         let max_start = Self::max_list_start(filtered_track_count, self.list_visible_row_count);
         let list_start = self.list_start.min(max_start);
 
-        let row_height = self.size_multiplier * BASE_ROW_HEIGHT;
+        let row_height = self.list_size_multiplier * BASE_ROW_HEIGHT;
         let row_stride =
-            calculate_row_stride(self.size_multiplier, BASE_ROW_HEIGHT, DIVIDER_HEIGHT);
+            calculate_row_stride(self.list_size_multiplier, BASE_ROW_HEIGHT, DIVIDER_HEIGHT);
 
         let list_end = (list_start + self.list_visible_row_count + 1).min(filtered_track_count);
         let visible_track_indices = if list_start < list_end {
@@ -3612,7 +3637,7 @@ impl AppModel {
 
     fn grid_layout_metrics(&self, width: f32) -> GridLayoutMetrics {
         let artwork_size = clamp(
-            self.size_multiplier * GRID_ARTWORK_SCALE,
+            self.grid_size_multiplier * GRID_ARTWORK_SCALE,
             GRID_MIN_ARTWORK_SIZE,
             GRID_MAX_ARTWORK_SIZE,
         );

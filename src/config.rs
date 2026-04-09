@@ -240,7 +240,8 @@ pub struct State {
     pub repeat: bool,
     pub repeat_mode: RepeatMode,
     pub shuffle: bool,
-    pub size_multiplier: f32,
+    pub list_size_multiplier: Option<f32>,
+    pub grid_size_multiplier: Option<f32>,
     pub sort_by: SortBy,
     pub sort_direction: SortDirection,
     pub volume: i32,
@@ -256,7 +257,8 @@ impl Default for State {
             repeat: false,
             repeat_mode: RepeatMode::All,
             shuffle: false,
-            size_multiplier: 8.0,
+            list_size_multiplier: None,
+            grid_size_multiplier: None,
             sort_by: SortBy::Artist,
             sort_direction: SortDirection::Ascending,
             volume: 100,
@@ -267,6 +269,18 @@ impl Default for State {
 }
 
 impl State {
+    pub const DEFAULT_SIZE_MULTIPLIER: f32 = 8.0;
+
+    pub fn effective_list_size_multiplier(&self) -> f32 {
+        self.list_size_multiplier
+            .unwrap_or(Self::DEFAULT_SIZE_MULTIPLIER)
+    }
+
+    pub fn effective_grid_size_multiplier(&self) -> f32 {
+        self.grid_size_multiplier
+            .unwrap_or(Self::DEFAULT_SIZE_MULTIPLIER)
+    }
+
     pub fn load() -> (Option<cosmic_config::Config>, Self) {
         match cosmic_config::Config::new_state(AppModel::APP_ID, CONFIG_VERSION) {
             Ok(config_handler) => {

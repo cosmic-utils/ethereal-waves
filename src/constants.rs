@@ -3,8 +3,10 @@
 /// UI Layout Constants
 pub const BASE_ROW_HEIGHT: f32 = 5.0;
 pub const DIVIDER_HEIGHT: f32 = 1.0;
-pub const MIN_SIZE_MULTIPLIER: f32 = 4.0;
-pub const MAX_SIZE_MULTIPLIER: f32 = 30.0;
+pub const LIST_MIN_SIZE_MULTIPLIER: f32 = 4.0;
+pub const LIST_MAX_SIZE_MULTIPLIER: f32 = 30.0;
+pub const GRID_MIN_SIZE_MULTIPLIER: f32 = 8.0;
+pub const GRID_MAX_SIZE_MULTIPLIER: f32 = 22.0;
 pub const ZOOM_STEP: f32 = 2.0;
 pub const FOOTER_CONDENSED_BREAKPOINT: f32 = 700.0;
 pub const COMPACT_COLUMN_WIDTH: f32 = 96.0;
