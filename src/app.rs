@@ -1338,24 +1338,35 @@ impl cosmic::Application for AppModel {
                     return Task::none();
                 };
 
-                let source_id = match self.view_playlist {
-                    Some(id) => id,
-                    None => return Task::none(),
-                };
-
-                let source_tracks = match self.playlist_service.get(source_id) {
-                    Ok(playlist) => playlist
-                        .tracks()
-                        .iter()
-                        .map(|t| (t.instance_id(), t.clone()))
-                        .collect::<HashMap<String, Track>>(),
-                    Err(_) => return Task::none(),
-                };
+                let source_tracks = self
+                    .view_playlist
+                    .and_then(|source_id| self.playlist_service.get(source_id).ok())
+                    .map(|playlist| {
+                        playlist
+                            .tracks()
+                            .iter()
+                            .map(|t| (t.instance_id(), t.clone()))
+                            .collect::<HashMap<String, Track>>()
+                    })
+                    .unwrap_or_default();
 
                 let dragged_tracks: Vec<Track> = data
                     .track_ids
                     .into_iter()
-                    .filter_map(|id| source_tracks.get(&id).cloned())
+                    .filter_map(|id| {
+                        source_tracks.get(&id).cloned().or_else(|| {
+                            id.strip_prefix(LIBRARY_TRACK_DROP_PREFIX)
+                                .and_then(|library_id| {
+                                    self.library.from_id(&library_id.to_string()).map(
+                                        |(path, metadata)| Track {
+                                            path: path.clone(),
+                                            metadata: metadata.clone(),
+                                            ..Default::default()
+                                        },
+                                    )
+                                })
+                        })
+                    })
                     .map(|mut track| {
                         track.selected = false;
                         track.generate_entry_id();
@@ -1363,6 +1374,10 @@ impl cosmic::Application for AppModel {
                         track
                     })
                     .collect();
+
+                if dragged_tracks.is_empty() {
+                    return Task::none();
+                }
 
                 self.add_tracks_to_playlist_with_duplicate_policy(*destination_id, dragged_tracks);
             }

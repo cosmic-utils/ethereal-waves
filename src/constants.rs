@@ -50,5 +50,6 @@ pub const RENAME_PLAYLIST_INPUT_ID: &str = "rename_playlist_input_id";
 pub const SEARCH_INPUT_ID: &str = "Text Search";
 pub const MENU_WIDGET_ID: &str = "responsive_menu";
 
-/// Mime for Drag and Drop
+/// Drag and Drop
 pub const MIME_TRACK_IDS: &str = "application/x-ethereal-waves-track-ids";
+pub const LIBRARY_TRACK_DROP_PREFIX: &str = "library:";

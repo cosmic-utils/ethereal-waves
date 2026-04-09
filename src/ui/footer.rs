@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
-use crate::app::{AppModel, Message};
-use crate::constants::FOOTER_CONDENSED_BREAKPOINT;
+use crate::app::{AppModel, Message, TrackDropData};
+use crate::constants::{FOOTER_CONDENSED_BREAKPOINT, LIBRARY_TRACK_DROP_PREFIX};
 use crate::fl;
 use crate::helpers::*;
 use crate::library::MediaMetaData;
@@ -11,8 +11,10 @@ use cosmic::{
     Element, cosmic_theme,
     iced::{
         Alignment, Font, Length,
+        clipboard::dnd::DndAction,
         font::{self, Weight},
     },
+    iced_core::widget::Tree,
     theme, widget,
 };
 use std::sync::Arc;
@@ -115,27 +117,13 @@ fn condensed_footer<'a>(
 
     let artwork_size = 48;
 
-    let artwork: Element<Message> = handle
-        .as_ref()
-        .map(|handle| {
-            widget::row()
-                .align_y(Alignment::Center)
-                .width(Length::Fixed(artwork_size as f32))
-                .height(Length::Fixed(artwork_size as f32))
-                .push(
-                    widget::image(handle.as_ref())
-                        .height(artwork_size)
-                        .width(artwork_size),
-                )
-                .into()
-        })
-        .unwrap_or_else(|| {
-            widget::layer_container(widget::row())
-                .layer(cosmic_theme::Layer::Secondary)
-                .width(Length::Fixed(artwork_size as f32))
-                .height(Length::Fixed(artwork_size as f32))
-                .into()
-        });
+    let artwork_drag_data = current_track_drop_data(app);
+    let artwork_drag_label = now_playing
+        .clone()
+        .title
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| fl!("one-track-selected"));
+    let artwork = footer_artwork(handle, artwork_size, artwork_drag_data, artwork_drag_label);
 
     let title_text = now_playing.title.as_deref().unwrap_or_default().to_string();
     let by_text = join_non_empty(
@@ -241,27 +229,13 @@ fn full_footer<'a>(
     let artwork_size = 85;
 
     // Now playing column
-    let artwork: Element<Message> = handle
-        .as_ref()
-        .map(|handle| {
-            widget::row()
-                .align_y(Alignment::Center)
-                .width(Length::Fixed(artwork_size as f32))
-                .height(Length::Fixed(artwork_size as f32))
-                .push(
-                    widget::image(handle.as_ref())
-                        .height(artwork_size)
-                        .width(artwork_size),
-                )
-                .into()
-        })
-        .unwrap_or_else(|| {
-            widget::layer_container(widget::row())
-                .layer(cosmic_theme::Layer::Secondary)
-                .width(Length::Fixed(artwork_size as f32))
-                .height(Length::Fixed(artwork_size as f32))
-                .into()
-        });
+    let artwork_drag_data = current_track_drop_data(app);
+    let artwork_drag_label = now_playing
+        .clone()
+        .title
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| fl!("one-track-selected"));
+    let artwork = footer_artwork(handle, artwork_size, artwork_drag_data, artwork_drag_label);
 
     let mut now_playing_text = widget::column();
     if app.playback_service.now_playing().is_some() {
@@ -388,4 +362,76 @@ fn full_footer<'a>(
     widget::layer_container(content.push(control_row))
         .layer(cosmic_theme::Layer::Primary)
         .into()
+}
+
+fn current_track_drop_data(app: &AppModel) -> Option<TrackDropData> {
+    app.playback_service
+        .now_playing()
+        .and_then(|now_playing| now_playing.id.as_ref())
+        .filter(|id| !id.is_empty())
+        .cloned()
+        .map(|id| TrackDropData::new(vec![format!("{LIBRARY_TRACK_DROP_PREFIX}{id}")]))
+}
+
+fn draggable_artwork<'a>(
+    artwork: Element<'a, Message>,
+    drag_data: Option<TrackDropData>,
+    drag_label: String,
+) -> Element<'a, Message> {
+    let Some(drag_data) = drag_data else {
+        return artwork;
+    };
+
+    widget::dnd_source::DndSource::new(widget::mouse_area(artwork))
+        .drag_content(move || drag_data.clone())
+        .action(DndAction::Copy)
+        .drag_icon(move |_offset| {
+            let badge: cosmic::Element<'static, ()> = widget::layer_container(
+                widget::column().push(
+                    widget::row()
+                        .push(widget::text::body(drag_label.clone()))
+                        .padding([6, 10]),
+                ),
+            )
+            .layer(cosmic_theme::Layer::Primary)
+            .into();
+
+            let state = Tree::new(&badge).state;
+            let new_offset = cosmic::iced::Vector::new(20.0, 20.0);
+
+            (badge, state, new_offset)
+        })
+        .drag_threshold(1.0)
+        .into()
+}
+
+fn footer_artwork<'a>(
+    handle: Option<Arc<cosmic::widget::image::Handle>>,
+    artwork_size: u16,
+    drag_data: Option<TrackDropData>,
+    drag_label: String,
+) -> Element<'a, Message> {
+    let artwork: Element<'a, Message> = handle
+        .as_ref()
+        .map(|handle| {
+            widget::row()
+                .align_y(Alignment::Center)
+                .width(Length::Fixed(artwork_size as f32))
+                .height(Length::Fixed(artwork_size as f32))
+                .push(
+                    widget::image(handle.as_ref())
+                        .height(artwork_size)
+                        .width(artwork_size),
+                )
+                .into()
+        })
+        .unwrap_or_else(|| {
+            widget::layer_container(widget::row())
+                .layer(cosmic_theme::Layer::Secondary)
+                .width(Length::Fixed(artwork_size as f32))
+                .height(Length::Fixed(artwork_size as f32))
+                .into()
+        });
+
+    draggable_artwork(artwork, drag_data, drag_label)
 }
