@@ -2361,9 +2361,7 @@ impl AppModel {
 
         for (i, t) in tracks.iter().enumerate().take(take) {
             let duration = t.metadata.duration.clone().unwrap_or(0.0);
-            let minutes = (duration / 60.0) as u32;
-            let seconds = f32::trunc(duration) as u32 - (minutes * 60);
-            let display_duration = format!("{}:{:02}", minutes, seconds);
+            let display_duration = format_duration(duration);
 
             let container = widget::container(
                 widget::column()
@@ -2389,35 +2387,19 @@ impl AppModel {
                     ))
                     .push(track_info_row(
                         fl!("album-disc-number"),
-                        t.metadata
-                            .album_disc_number
-                            .clone()
-                            .unwrap_or_default()
-                            .to_string(),
+                        optional_display(t.metadata.album_disc_number),
                     ))
                     .push(track_info_row(
                         fl!("album-disc-count"),
-                        t.metadata
-                            .album_disc_count
-                            .clone()
-                            .unwrap_or_default()
-                            .to_string(),
+                        optional_display(t.metadata.album_disc_count),
                     ))
                     .push(track_info_row(
                         fl!("track-number"),
-                        t.metadata
-                            .track_number
-                            .clone()
-                            .unwrap_or_default()
-                            .to_string(),
+                        optional_display(t.metadata.track_number),
                     ))
                     .push(track_info_row(
                         fl!("track-count"),
-                        t.metadata
-                            .track_count
-                            .clone()
-                            .unwrap_or_default()
-                            .to_string(),
+                        optional_display(t.metadata.track_count),
                     ))
                     .push(track_info_row(fl!("duration"), display_duration))
                     .push(
@@ -3397,10 +3379,11 @@ impl AppModel {
         let is_in_library = self.library.media.contains_key(&track.path);
 
         GridCardBase {
-            title: Self::fallback_track_title(track),
+            title: non_empty_text(track.metadata.title.as_deref())
+                .unwrap_or_else(|| path_display_name(&track.path)),
             subtitle: Self::grid_track_subtitle(track, is_in_library),
             info_text: String::new(),
-            duration_text: Self::format_grid_duration(track.metadata.duration),
+            duration_text: format_optional_duration(track.metadata.duration),
             artwork_filename: track.metadata.artwork_filename.clone(),
             playlist_indices: Arc::new(vec![playlist_index]),
             track_ids: Arc::new(vec![track.instance_id()]),
@@ -3493,7 +3476,7 @@ impl AppModel {
                     title: group.title,
                     subtitle,
                     info_text: Self::grid_track_count_text(track_count),
-                    duration_text: Self::format_grid_duration(
+                    duration_text: format_optional_duration(
                         group.has_duration.then_some(group.total_duration),
                     ),
                     artwork_filename: group.artwork_filename,
@@ -3532,48 +3515,27 @@ impl AppModel {
         }
     }
 
-    fn non_empty_text(value: Option<&str>) -> Option<String> {
-        value
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-    }
-
-    fn fallback_track_title(track: &Track) -> String {
-        Self::non_empty_text(track.metadata.title.as_deref()).unwrap_or_else(|| {
-            track
-                .path
-                .file_stem()
-                .or_else(|| track.path.file_name())
-                .map(|value| value.to_string_lossy().to_string())
-                .unwrap_or_default()
-        })
-    }
-
-    fn metadata_or_unknown(value: Option<&str>, unknown: &str) -> String {
-        Self::non_empty_text(value).unwrap_or_else(|| unknown.to_string())
-    }
-
     fn grid_track_subtitle(track: &Track, is_in_library: bool) -> String {
         if !is_in_library {
             return fl!("not-in-library");
         }
 
-        let artist = Self::non_empty_text(track.metadata.artist.as_deref())
-            .or_else(|| Self::non_empty_text(track.metadata.album_artist.as_deref()));
-        let album = Self::non_empty_text(track.metadata.album.as_deref());
+        let artist = non_empty_text(track.metadata.artist.as_deref())
+            .or_else(|| non_empty_text(track.metadata.album_artist.as_deref()));
+        let album = non_empty_text(track.metadata.album.as_deref());
 
-        match (artist, album) {
-            (Some(artist), Some(album)) => format!("{artist} • {album}"),
-            (Some(artist), None) => artist,
-            (None, Some(album)) => album,
-            (None, None) => String::new(),
-        }
+        join_non_empty(
+            &[
+                artist.as_deref().unwrap_or_default(),
+                album.as_deref().unwrap_or_default(),
+            ],
+            " • ",
+        )
     }
 
     fn grid_album_identity(track: &Track) -> String {
-        let album = Self::metadata_or_unknown(track.metadata.album.as_deref(), "Unknown Album");
-        let album_artist = Self::metadata_or_unknown(
+        let album = fallback_text(track.metadata.album.as_deref(), "Unknown Album");
+        let album_artist = fallback_text(
             track
                 .metadata
                 .album_artist
@@ -3588,8 +3550,8 @@ impl AppModel {
         match group_by {
             GridGroupBy::Track => unreachable!("track grouping does not use a grouped key"),
             GridGroupBy::Album => GridGroupKey::Album {
-                album: Self::metadata_or_unknown(track.metadata.album.as_deref(), "Unknown Album"),
-                album_artist: Self::metadata_or_unknown(
+                album: fallback_text(track.metadata.album.as_deref(), "Unknown Album"),
+                album_artist: fallback_text(
                     track
                         .metadata
                         .album_artist
@@ -3598,7 +3560,7 @@ impl AppModel {
                     "Unknown Album Artist",
                 ),
             },
-            GridGroupBy::Artist => GridGroupKey::Artist(Self::metadata_or_unknown(
+            GridGroupBy::Artist => GridGroupKey::Artist(fallback_text(
                 track
                     .metadata
                     .artist
@@ -3606,7 +3568,7 @@ impl AppModel {
                     .or(track.metadata.album_artist.as_deref()),
                 "Unknown Artist",
             )),
-            GridGroupBy::AlbumArtist => GridGroupKey::AlbumArtist(Self::metadata_or_unknown(
+            GridGroupBy::AlbumArtist => GridGroupKey::AlbumArtist(fallback_text(
                 track
                     .metadata
                     .album_artist
@@ -3630,23 +3592,6 @@ impl AppModel {
             "1 album".to_string()
         } else {
             format!("{album_count} albums")
-        }
-    }
-
-    fn format_grid_duration(duration: Option<f32>) -> String {
-        let Some(duration) = duration else {
-            return String::new();
-        };
-
-        let total_seconds = duration.floor() as u32;
-        let hours = total_seconds / 3600;
-        let minutes = (total_seconds % 3600) / 60;
-        let seconds = total_seconds % 60;
-
-        if hours > 0 {
-            format!("{hours}:{minutes:02}:{seconds:02}")
-        } else {
-            format!("{minutes}:{seconds:02}")
         }
     }
 

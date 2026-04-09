@@ -137,20 +137,17 @@ fn condensed_footer<'a>(
                 .into()
         });
 
-    let title_text: String = now_playing.clone().title.unwrap_or_default();
-    let artist_text: String = now_playing.clone().artist.unwrap_or_default();
-    let album_text: String = now_playing.clone().album.unwrap_or_default();
-
-    let by_text = if artist_text.len() > 0 && album_text.len() > 0 {
-        format!("{album_text} - {artist_text}")
-    } else if artist_text.len() > 0 && album_text.len() == 0 {
-        format!("{artist_text}")
-    } else {
-        format!("{album_text}")
-    };
+    let title_text = now_playing.title.as_deref().unwrap_or_default().to_string();
+    let by_text = join_non_empty(
+        &[
+            now_playing.album.as_deref().unwrap_or_default(),
+            now_playing.artist.as_deref().unwrap_or_default(),
+        ],
+        " - ",
+    );
 
     let mut meta = widget::column().width(Length::Fill);
-    if title_text.len() > 0 {
+    if !title_text.is_empty() {
         meta = meta.push(
             widget::text(title_text)
                 .wrapping(cosmic::iced_core::text::Wrapping::WordOrGlyph)
@@ -160,7 +157,7 @@ fn condensed_footer<'a>(
                 }),
         )
     }
-    if by_text.len() > 0 {
+    if !by_text.is_empty() {
         meta = meta
             .push(widget::text(by_text).wrapping(cosmic::iced_core::text::Wrapping::WordOrGlyph));
     }

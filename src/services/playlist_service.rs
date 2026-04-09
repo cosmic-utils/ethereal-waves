@@ -2,7 +2,7 @@ use crate::app::PlaylistId;
 use crate::constants::PLAYLISTS_DIR;
 use crate::playlist::{Playlist, Track};
 use anyhow::{Result, anyhow};
-use std::{collections::HashSet, fs, sync::Arc};
+use std::{collections::HashSet, fs, path::PathBuf, sync::Arc};
 use xdg::BaseDirectories;
 
 pub struct PlaylistService {
@@ -27,7 +27,7 @@ impl PlaylistService {
         self.playlists.push(library);
 
         // Load user playlists
-        let playlist_dir = self.xdg_dirs.create_data_directory(PLAYLISTS_DIR)?;
+        let playlist_dir = self.playlist_dir()?;
 
         for entry in fs::read_dir(playlist_dir)? {
             let entry = entry?;
@@ -82,9 +82,7 @@ impl PlaylistService {
         }
 
         // Remove file
-        let filename = format!("{}.json", id);
-        let mut file_path = self.xdg_dirs.create_data_directory("playlists")?;
-        file_path.push(filename);
+        let file_path = self.playlist_file_path(id)?;
         fs::remove_file(file_path)?;
 
         // Remove from memory
@@ -144,8 +142,6 @@ impl PlaylistService {
         }
 
         playlist.remove_selected();
-
-        playlist.remove_selected();
         self.save(playlist_id)?;
 
         Ok(())
@@ -201,9 +197,7 @@ impl PlaylistService {
             return Ok(());
         }
 
-        let filename = format!("{}.json", id);
-        let mut file_path = self.xdg_dirs.create_data_directory("playlists")?;
-        file_path.push(filename);
+        let file_path = self.playlist_file_path(id)?;
 
         let content = serde_json::to_string_pretty(playlist)?;
         fs::write(file_path, content)?;
@@ -257,5 +251,15 @@ impl PlaylistService {
         let playlist = self.get_mut(playlist_id)?;
         playlist.select_range(start, end);
         Ok(())
+    }
+
+    fn playlist_dir(&self) -> Result<PathBuf> {
+        Ok(self.xdg_dirs.create_data_directory(PLAYLISTS_DIR)?)
+    }
+
+    fn playlist_file_path(&self, id: PlaylistId) -> Result<PathBuf> {
+        let mut file_path = self.playlist_dir()?;
+        file_path.push(format!("{id}.json"));
+        Ok(file_path)
     }
 }
