@@ -50,7 +50,7 @@ Non-exhaustive list of planned features in no particular order:
 - `F1`: Track Info
 - `m`: Toggle Mute
 - `-`: Volume Down
-- `=`: Volume Up and Unmute
+- `=`: Volume Up
 
 ## Installation
 
