@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use crate::config::{
-    AppTheme, CONFIG_VERSION, Config, GridGroupBy, ListColumn, PlaylistDuplicatePolicy, State,
-    TitleSortMode,
+    AppTheme, CONFIG_VERSION, Config, GridGroupBy, ListColumn, PlaybackTransitionMode,
+    PlaylistDuplicatePolicy, State, TitleSortMode,
 };
 use crate::constants::*;
 use crate::fl;
@@ -90,6 +90,7 @@ pub struct AppModel {
     app_theme_labels: Vec<String>,
     title_sort_labels: Vec<String>,
     playlist_duplicate_policy_lables: Vec<String>,
+    playback_transition_labels: Vec<String>,
 
     pub is_condensed: bool,
 
@@ -153,6 +154,7 @@ pub enum Message {
     CancelLibraryUpdate,
     ChangeTrack(usize),
     ChangeTracks(Arc<Vec<usize>>),
+    CrossfadeDuration(i32),
     DeletePlaylist,
     DialogCancel,
     DialogComplete,
@@ -178,6 +180,7 @@ pub enum Message {
     Next,
     Noop,
     PlayPause,
+    PlaybackTransitionMode(PlaybackTransitionMode),
     PlaylistDuplicateDialogAction(PlaylistDuplicateDialogAction),
     PlaylistDuplicatePolicy(PlaylistDuplicatePolicy),
     Previous,
@@ -305,6 +308,7 @@ impl cosmic::Application for AppModel {
             app_theme_labels: vec![fl!("match-desktop"), fl!("dark"), fl!("light")],
             title_sort_labels: vec![fl!("alphabetical"), fl!("track-number")],
             playlist_duplicate_policy_lables: vec![fl!("allow"), fl!("disallow"), fl!("ask")],
+            playback_transition_labels: vec![fl!("gappless"), fl!("crossfade")],
             is_condensed: false,
             config_handler: _flags.config_handler,
             state_handler: _flags.state_handler,
@@ -343,7 +347,12 @@ impl cosmic::Application for AppModel {
             playlist_service: PlaylistService::new(Arc::new(app_xdg_dirs.clone())),
         };
 
-        // Apply persisted output state to the playback engine before any session starts.
+        // Apply persisted playback settings to the engine before any session starts
+        app.playback_service
+            .set_repeat_state(app.state.repeat_mode.clone(), app.state.repeat);
+        app.playback_service
+            .set_transition_mode(app.config.playback_transition_mode);
+        app.sync_crossfade_duration_from_config();
         app.sync_playback_output_from_state();
 
         // Create a startup command that sets the window title.
@@ -853,6 +862,19 @@ impl cosmic::Application for AppModel {
                 }
 
                 self.list_last_clicked = Some(now);
+            }
+
+            Message::CrossfadeDuration(crossfade_duration_secs) => {
+                let crossfade_duration_secs = crossfade_duration_secs
+                    .clamp(MIN_CROSSFADE_DURATION_SECS, MAX_CROSSFADE_DURATION_SECS);
+
+                if self.config.crossfade_duration_secs == crossfade_duration_secs {
+                    return Task::none();
+                }
+
+                config_set!(crossfade_duration_secs, crossfade_duration_secs);
+                self.config.crossfade_duration_secs = crossfade_duration_secs;
+                self.sync_crossfade_duration_from_config();
             }
 
             Message::DialogCancel => {
@@ -1392,6 +1414,13 @@ impl cosmic::Application for AppModel {
                     .next(self.state.repeat_mode.clone(), self.state.repeat);
             }
 
+            Message::PlaybackTransitionMode(playback_transition_mode) => {
+                config_set!(playback_transition_mode, playback_transition_mode);
+                self.config.playback_transition_mode = playback_transition_mode;
+                self.playback_service
+                    .set_transition_mode(playback_transition_mode);
+            }
+
             Message::PlaylistDuplicatePolicy(playlist_duplicate_policy) => {
                 config_set!(playlist_duplicate_policy, playlist_duplicate_policy);
                 self.config.playlist_duplicate_policy = playlist_duplicate_policy;
@@ -1578,7 +1607,8 @@ impl cosmic::Application for AppModel {
                             self.playback_service
                                 .next(self.state.repeat_mode.clone(), self.state.repeat);
                         }
-                        PlaybackEvent::GaplessTrackAdvanced => {
+                        PlaybackEvent::GaplessTrackAdvanced
+                        | PlaybackEvent::CrossfadeTrackAdvanced => {
                             // Session index updates inside playback_service.tick()
                             // Just update MPRIS
                             self.update_mpris();
@@ -1797,7 +1827,11 @@ impl cosmic::Application for AppModel {
             }
 
             Message::UpdateConfig(config) => {
+                let playback_transition_mode = config.playback_transition_mode;
                 self.config = config;
+                self.playback_service
+                    .set_transition_mode(playback_transition_mode);
+                self.sync_crossfade_duration_from_config();
             }
 
             Message::UpdateDialog(dialog_page) => match dialog_page {
@@ -2241,9 +2275,17 @@ impl AppModel {
             PlaylistDuplicatePolicy::Disallow => 1,
             PlaylistDuplicatePolicy::Ask => 2,
         };
+        let crossfade_duration_secs = self
+            .config
+            .crossfade_duration_secs
+            .clamp(MIN_CROSSFADE_DURATION_SECS, MAX_CROSSFADE_DURATION_SECS);
         let title_sort_selected = match self.config.title_sort {
             TitleSortMode::Alphabetical => 0,
             TitleSortMode::TrackNumber => 1,
+        };
+        let playback_transition_selected = match self.config.playback_transition_mode {
+            PlaybackTransitionMode::Gapless => 0,
+            PlaybackTransitionMode::Crossfade => 1,
         };
         let mut library_column = widget::column();
 
@@ -2314,6 +2356,38 @@ impl AppModel {
                 )
             });
 
+        let mut playback_section = settings::section().title(fl!("playback")).add({
+            settings::item::builder(fl!("transition-mode")).control(widget::dropdown(
+                &self.playback_transition_labels,
+                Some(playback_transition_selected),
+                move |index| {
+                    Message::PlaybackTransitionMode(match index {
+                        1 => PlaybackTransitionMode::Crossfade,
+                        _ => PlaybackTransitionMode::Gapless,
+                    })
+                },
+            ))
+        });
+
+        if self.config.playback_transition_mode == PlaybackTransitionMode::Crossfade {
+            playback_section = playback_section.add({
+                settings::item::builder(fl!("crossfade-duration")).control(
+                    row()
+                        .align_y(Alignment::Center)
+                        .spacing(space_xxs)
+                        .push(
+                            widget::slider(
+                                MIN_CROSSFADE_DURATION_SECS..=MAX_CROSSFADE_DURATION_SECS,
+                                crossfade_duration_secs,
+                                Message::CrossfadeDuration,
+                            )
+                            .width(Length::Fixed(180.0)),
+                        )
+                        .push(widget::text(format!("{}s", crossfade_duration_secs))),
+                )
+            });
+        }
+
         let mut list_view_section = settings::section()
             .title(fl!("list-view"))
             .add({
@@ -2376,6 +2450,7 @@ impl AppModel {
                     ))
                 })
                 .into(),
+            playback_section.into(),
             list_view_section.into(),
             settings::section()
                 .title(fl!("library"))
@@ -2383,6 +2458,11 @@ impl AppModel {
                 .into(),
         ])
         .into()
+    }
+
+    fn sync_crossfade_duration_from_config(&mut self) {
+        self.playback_service
+            .set_crossfade_duration_secs(self.config.crossfade_duration_secs);
     }
 
     /// Track info panel

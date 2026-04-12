@@ -19,7 +19,7 @@ A basic music player based on libcosmic. It's still very much a work in progress
 Non-exhaustive list of planned features in no particular order:
 
 - [x] Gapless playback
-- [ ] Crossfading between tracks
+- [x] Crossfading between tracks
 - [x] Grid view
 - [x] More column options in list view (calling this complete for the time being)
 - [ ] Import / Export .m3u playlists

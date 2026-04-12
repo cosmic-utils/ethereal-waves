@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use crate::app::{AppModel, SortBy, SortDirection, ViewMode};
+use crate::constants::DEFAULT_CROSSFADE_DURATION_SECS;
 use crate::playback_state::RepeatMode;
 use cosmic::{
     Application,
@@ -23,6 +24,12 @@ pub enum PlaylistDuplicatePolicy {
     Allow,
     Disallow,
     Ask,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum PlaybackTransitionMode {
+    Gapless,
+    Crossfade,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -176,6 +183,8 @@ pub struct Config {
     pub title_sort: TitleSortMode,
     pub sort_case_sensitive: bool,
     pub playlist_duplicate_policy: PlaylistDuplicatePolicy,
+    pub playback_transition_mode: PlaybackTransitionMode,
+    pub crossfade_duration_secs: i32,
     pub view_mode: ViewMode,
 }
 
@@ -226,7 +235,9 @@ impl Default for Config {
             list_column_order: ListColumn::default_order(),
             title_sort: TitleSortMode::Alphabetical,
             sort_case_sensitive: false,
-            playlist_duplicate_policy: PlaylistDuplicatePolicy::Allow,
+            playlist_duplicate_policy: PlaylistDuplicatePolicy::Ask,
+            playback_transition_mode: PlaybackTransitionMode::Gapless,
+            crossfade_duration_secs: DEFAULT_CROSSFADE_DURATION_SECS,
             view_mode: ViewMode::List,
         }
     }

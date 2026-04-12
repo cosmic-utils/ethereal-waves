@@ -98,6 +98,10 @@ add-location = Add Location
 align-rows-top = Align Rows To The Top
 show-album-column = Show Album Column
 show-album-artist-column = Show Album Artist Column
+transition-mode = Transition Mode
+gappless = Gappless
+crossfade = Crossfade
+crossfade-duration = Crossfade Duration
 
 number = #
 title = Title

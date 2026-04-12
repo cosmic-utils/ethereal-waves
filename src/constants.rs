@@ -55,3 +55,8 @@ pub const MENU_WIDGET_ID: &str = "responsive_menu";
 /// Drag and Drop
 pub const MIME_TRACK_IDS: &str = "application/x-ethereal-waves-track-ids";
 pub const LIBRARY_TRACK_DROP_PREFIX: &str = "library:";
+
+/// Playback Constants
+pub const DEFAULT_CROSSFADE_DURATION_SECS: i32 = 5;
+pub const MIN_CROSSFADE_DURATION_SECS: i32 = 1;
+pub const MAX_CROSSFADE_DURATION_SECS: i32 = 10;
