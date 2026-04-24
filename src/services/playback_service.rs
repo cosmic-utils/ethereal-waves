@@ -92,7 +92,7 @@ impl PlaybackService {
         }
     }
 
-    // ===== State Access =====
+    // State Access
 
     pub fn status(&self) -> PlaybackStatus {
         self.state.status
@@ -143,7 +143,7 @@ impl PlaybackService {
         self.apply_output_volume();
     }
 
-    // ===== Playback Control =====
+    // Playback Control
 
     pub fn set_crossfade_duration_secs(&mut self, duration_secs: i32) {
         self.crossfade_duration_secs =
@@ -151,6 +151,11 @@ impl PlaybackService {
     }
 
     pub fn play(&mut self) {
+        if !self.has_current_track() {
+            self.clear_session();
+            return;
+        }
+
         self.active_player_mut().play();
         self.state.status = PlaybackStatus::Playing;
     }
@@ -194,10 +199,15 @@ impl PlaybackService {
         }
     }
 
-    // ===== Session Management =====
+    // Session Management
 
     /// Start a new playback session from a playlist
     pub fn start_session(&mut self, playlist: &Playlist, index: usize, shuffle: bool) {
+        if playlist.tracks().is_empty() {
+            self.clear_session();
+            return;
+        }
+
         let mut order = playlist.tracks().to_vec();
 
         let actual_index = if shuffle {
@@ -370,7 +380,7 @@ impl PlaybackService {
         true
     }
 
-    // ===== Navigation =====
+    // Navigation
 
     pub fn next(&mut self, repeat_mode: RepeatMode, repeat_enabled: bool) {
         self.repeat_mode = repeat_mode.clone();
@@ -483,7 +493,7 @@ impl PlaybackService {
         commands
     }
 
-    // ===== Private Helpers =====
+    // Helpers
 
     fn player(&self, slot: PlayerSlot) -> &Player {
         match slot {
@@ -505,6 +515,22 @@ impl PlaybackService {
 
     fn active_player_mut(&mut self) -> &mut Player {
         self.player_mut(self.active_slot)
+    }
+
+    fn has_current_track(&self) -> bool {
+        self.state.session.as_ref().is_some_and(|session| session.order.get(session.index).is_some())
+    }
+
+    fn clear_session(&mut self) {
+        self.stop_all_players();
+        self.active_slot = PlayerSlot::Primary;
+        self.gapless_pending = false;
+        self.pending_gapless_track_id = None;
+        self.crossfade = None;
+        self.state.session = None;
+        self.state.now_playing = None;
+        self.state.status = PlaybackStatus::Stopped;
+        self.state.progress = 0.0;
     }
 
     fn stop_slot(&mut self, slot: PlayerSlot) {
