@@ -452,17 +452,32 @@ fn artwork_element<'a>(
     artwork_size: f32,
     has_available_track: bool,
 ) -> Element<'a, Message> {
-    if let Some(artwork_filename) = artwork_filename {
-        app.image_store.request(artwork_filename.clone());
-        if let Some(handle) = app.image_store.get(artwork_filename) {
-            return widget::container(
-                widget::image(handle.as_ref())
-                    .width(Length::Fixed(artwork_size))
-                    .height(Length::Fixed(artwork_size)),
-            )
-            .width(Length::Fixed(artwork_size))
-            .height(Length::Fixed(artwork_size))
-            .into();
+    if let Some(original_artwork_filename) = artwork_filename {
+        // Prefer the in-memory handle before checking the filesystem. This lets already-loaded
+        // artwork stay visible even if the backing cache file was deleted after it was loaded.
+        let preferred_artwork_filename = app
+            .config
+            .grid_artwork_size
+            .cache_filename(original_artwork_filename);
+        if let Some(handle) = app.image_store.get(&preferred_artwork_filename) {
+            return artwork_image_element(handle, artwork_size);
+        }
+
+        let preferred_exists = app.image_store.exists(&preferred_artwork_filename);
+        if preferred_exists {
+            app.image_store.request(preferred_artwork_filename.clone());
+        }
+
+        let preferred_is_original =
+            preferred_artwork_filename == original_artwork_filename.as_str();
+        if !preferred_is_original {
+            if let Some(handle) = app.image_store.get(original_artwork_filename) {
+                return artwork_image_element(handle, artwork_size);
+            }
+
+            if !preferred_exists && app.image_store.exists(original_artwork_filename) {
+                app.image_store.request(original_artwork_filename.clone());
+            }
         }
     }
 
@@ -518,4 +533,18 @@ fn button_appearance(theme: &theme::Theme, selected: bool, hovered: bool) -> wid
     appearance.border_width = 0.0;
     appearance.border_radius = cosmic.radius_xs().into();
     appearance
+}
+
+fn artwork_image_element<'a>(
+    handle: Arc<cosmic::widget::image::Handle>,
+    artwork_size: f32,
+) -> Element<'a, Message> {
+    widget::container(
+        widget::image(handle.as_ref())
+            .width(Length::Fixed(artwork_size))
+            .height(Length::Fixed(artwork_size)),
+    )
+    .width(Length::Fixed(artwork_size))
+    .height(Length::Fixed(artwork_size))
+    .into()
 }

@@ -2,13 +2,15 @@
 // src/services/library_service.rs
 
 use crate::constants::*;
+use crate::helpers::artwork_variant_filename;
 use crate::library::{Library, MediaMetaData};
 use gstreamer as gst;
 use gstreamer_pbutils as pbutils;
+use image::{DynamicImage, ImageFormat};
 use sha256::digest;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -112,6 +114,7 @@ impl LibraryService {
         xdg_dirs: Arc<BaseDirectories>,
         progress_tx: UnboundedSender<LibraryProgress>,
         cancel_token: CancellationToken,
+        regenerate_thumbnails: bool,
     ) {
         std::thread::spawn(move || {
             let mut library = Library::new();
@@ -193,6 +196,7 @@ impl LibraryService {
                     return;
                 }
             };
+            let mut refreshed_artwork_hashes = HashSet::new();
 
             for (file, track_metadata) in entries.iter_mut() {
                 if cancel_token.is_cancelled() {
@@ -204,8 +208,14 @@ impl LibraryService {
                 // Always count this file as processed (attempted)
                 update_progress += 1.0;
 
-                let ok = match Self::extract_metadata(file, track_metadata, &xdg_dirs, &discoverer)
-                {
+                let ok = match Self::extract_metadata(
+                    file,
+                    track_metadata,
+                    &xdg_dirs,
+                    &discoverer,
+                    regenerate_thumbnails,
+                    &mut refreshed_artwork_hashes,
+                ) {
                     Ok(_) => true,
                     Err(e) => {
                         eprintln!("Failed to extract metadata from {:?}: {}", file, e);
@@ -259,6 +269,8 @@ impl LibraryService {
         track_metadata: &mut MediaMetaData,
         xdg_dirs: &BaseDirectories,
         discoverer: &pbutils::Discoverer,
+        regenerate_thumbnails: bool,
+        refreshed_artwork_hashes: &mut HashSet<String>,
     ) -> Result<(), String> {
         let file_str = file
             .to_str()
@@ -302,11 +314,19 @@ impl LibraryService {
 
             // Cache artwork
             if let Some(sample) = tags.get::<gst::tags::Image>() {
-                track_metadata.artwork_filename =
-                    Self::cache_artwork(sample.get(), xdg_dirs.clone());
+                track_metadata.artwork_filename = Self::cache_artwork(
+                    sample.get(),
+                    xdg_dirs.clone(),
+                    regenerate_thumbnails,
+                    refreshed_artwork_hashes,
+                );
             } else if let Some(sample) = tags.get::<gst::tags::PreviewImage>() {
-                track_metadata.artwork_filename =
-                    Self::cache_artwork(sample.get(), xdg_dirs.clone());
+                track_metadata.artwork_filename = Self::cache_artwork(
+                    sample.get(),
+                    xdg_dirs.clone(),
+                    regenerate_thumbnails,
+                    refreshed_artwork_hashes,
+                );
             }
         } else {
             // No metadata - use filename
@@ -317,32 +337,157 @@ impl LibraryService {
     }
 
     /// Cache album artwork to disk, avoiding duplicates
-    fn cache_artwork(sample: gst::Sample, xdg_dirs: BaseDirectories) -> Option<String> {
+    fn cache_artwork(
+        sample: gst::Sample,
+        xdg_dirs: BaseDirectories,
+        regenerate_thumbnails: bool,
+        refreshed_artwork_hashes: &mut HashSet<String>,
+    ) -> Option<String> {
         let buffer = sample.buffer()?;
         let caps = sample.caps()?;
 
-        let mime = caps
+        let extension = caps
             .structure(0)
             .and_then(|s| s.name().split('/').nth(1))
+            .map(Self::mime_extension)
             .unwrap_or("jpg");
 
         let map = buffer.map_readable().ok()?;
-        let hash = digest(map.as_slice());
-        let file_name = format!("{}.{}", hash, mime);
+        let bytes = map.as_slice();
+        let hash = digest(bytes);
+        let file_name = format!("{}.{}", hash, extension);
 
         let full_path = xdg_dirs
             .place_cache_file(format!("{}/{}", ARTWORK_DIR, file_name))
             .ok()?;
 
-        // Only write if file doesn't exist
-        if !Path::new(&full_path).exists() {
-            let mut file = File::create(full_path).ok()?;
-            if let Err(err) = file.write_all(map.as_slice()) {
+        // When regeneration is enabled, rewrite each unique artwork image once per scan.
+        // Reusing the same flag for all variants keeps Original, Medium, and Small in sync
+        // without repeatedly rewriting duplicate album art shared by many tracks.
+        let force_artwork_cache = regenerate_thumbnails && refreshed_artwork_hashes.insert(hash);
+
+        if force_artwork_cache || !Path::new(&full_path).exists() {
+            let mut file = File::create(&full_path).ok()?;
+            if let Err(err) = file.write_all(bytes) {
                 eprintln!("Cannot save album artwork: {:?}", err);
                 return None;
             }
         }
 
+        if let Err(err) = Self::cache_artwork_thumbnails(
+            bytes,
+            extension,
+            &file_name,
+            &xdg_dirs,
+            force_artwork_cache,
+        ) {
+            eprintln!(
+                "Cannot save album artwork thumbnails for {:?}: {}",
+                file_name, err
+            );
+        }
+
         Some(file_name)
+    }
+
+    fn cache_artwork_thumbnails(
+        bytes: &[u8],
+        extension: &str,
+        original_file_name: &str,
+        xdg_dirs: &BaseDirectories,
+        force: bool,
+    ) -> Result<(), String> {
+        let Some(format) = ImageFormat::from_extension(extension) else {
+            return Ok(());
+        };
+
+        if !force
+            && Self::artwork_thumbnail_exists(original_file_name, ARTWORK_MEDIUM_SUFFIX, xdg_dirs)?
+            && Self::artwork_thumbnail_exists(original_file_name, ARTWORK_SMALL_SUFFIX, xdg_dirs)?
+        {
+            return Ok(());
+        }
+
+        let image = image::load_from_memory_with_format(bytes, format)
+            .or_else(|_| image::load_from_memory(bytes))
+            .map_err(|err| format!("failed to decode artwork: {err}"))?;
+
+        Self::cache_artwork_thumbnail(
+            &image,
+            format.clone(),
+            original_file_name,
+            ARTWORK_MEDIUM_SUFFIX,
+            ARTWORK_MEDIUM_SIZE,
+            xdg_dirs,
+            force,
+        )?;
+        Self::cache_artwork_thumbnail(
+            &image,
+            format,
+            original_file_name,
+            ARTWORK_SMALL_SUFFIX,
+            ARTWORK_SMALL_SIZE,
+            xdg_dirs,
+            force,
+        )?;
+
+        Ok(())
+    }
+
+    fn artwork_thumbnail_exists(
+        original_file_name: &str,
+        suffix: &str,
+        xdg_dirs: &BaseDirectories,
+    ) -> Result<bool, String> {
+        let file_name = artwork_variant_filename(original_file_name, suffix);
+        let full_path = xdg_dirs
+            .place_cache_file(format!("{}/{}", ARTWORK_DIR, file_name))
+            .map_err(|err| format!("failed to place cache thumbnail: {err}"))?;
+
+        Ok(Path::new(&full_path).exists())
+    }
+
+    fn cache_artwork_thumbnail(
+        image: &DynamicImage,
+        format: ImageFormat,
+        original_file_name: &str,
+        suffix: &str,
+        size: u32,
+        xdg_dirs: &BaseDirectories,
+        force: bool,
+    ) -> Result<(), String> {
+        let file_name = artwork_variant_filename(original_file_name, suffix);
+        let full_path = xdg_dirs
+            .place_cache_file(format!("{}/{}", ARTWORK_DIR, file_name))
+            .map_err(|err| format!("failed to place cache thumbnail: {err}"))?;
+
+        if !force && Path::new(&full_path).exists() {
+            return Ok(());
+        }
+
+        let thumbnail = image.thumbnail(size, size);
+        let mut encoded = Cursor::new(Vec::new());
+        thumbnail
+            .write_to(&mut encoded, format)
+            .map_err(|err| format!("failed to encode thumbnail: {err}"))?;
+
+        let mut file =
+            File::create(&full_path).map_err(|err| format!("failed to create thumbnail: {err}"))?;
+        file.write_all(encoded.get_ref())
+            .map_err(|err| format!("failed to write thumbnail: {err}"))?;
+
+        Ok(())
+    }
+
+    fn mime_extension(mime_subtype: &str) -> &'static str {
+        match mime_subtype {
+            "jpeg" | "jpg" | "pjpeg" => "jpg",
+            "png" | "x-png" => "png",
+            "gif" => "gif",
+            "webp" => "webp",
+            "bmp" | "x-ms-bmp" => "bmp",
+            "tiff" | "tif" => "tiff",
+            _ => "jpg",
+        }
     }
 }

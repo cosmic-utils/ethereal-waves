@@ -15,6 +15,11 @@ loading = Loading...
 untitled-playlist = Untitled Playlist
 not-in-library = Track is not in library
 cancel-update = Cancel Update
+artwork-size = Artwork Size
+original = Original
+medium = Medium
+small = Small
+regenerate-thumbnails-on-update = Regenerate Thumbnails on Update
 
 # Menu
 file = File

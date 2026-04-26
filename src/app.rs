@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use crate::config::{
-    AppTheme, CONFIG_VERSION, Config, GridGroupBy, ListColumn, PlaybackTransitionMode,
+    AppTheme, ArtworkSize, CONFIG_VERSION, Config, GridGroupBy, ListColumn, PlaybackTransitionMode,
     PlaylistDuplicatePolicy, State, TitleSortMode,
 };
 use crate::constants::*;
@@ -91,6 +91,7 @@ pub struct AppModel {
     title_sort_labels: Vec<String>,
     playlist_duplicate_policy_lables: Vec<String>,
     playback_transition_labels: Vec<String>,
+    artwork_size_labels: Vec<String>,
 
     pub is_condensed: bool,
 
@@ -167,6 +168,7 @@ pub enum Message {
     GridViewGroupBy(GridGroupBy),
     GridViewSort(SortBy),
     GridViewSortDirection(SortDirection),
+    GridViewArtworkSize(ArtworkSize),
     ListSelectRow(usize),
     ListSelectRows(Arc<Vec<usize>>),
     ListViewScroll(scrollable::Viewport),
@@ -212,6 +214,7 @@ pub enum Message {
     ToggleListRowAlignTop(bool),
     ToggleListTextWrap(bool),
     ToggleSortCaseSensitive(bool),
+    ToggleRegenerateThumbnailsOnUpdate(bool),
     ToggleListTitleColumn(bool),
     ToggleListTrackNumberColumn(bool),
     ToggleListTrackTotalColumn(bool),
@@ -309,6 +312,7 @@ impl cosmic::Application for AppModel {
             title_sort_labels: vec![fl!("alphabetical"), fl!("track-number")],
             playlist_duplicate_policy_lables: vec![fl!("allow"), fl!("disallow"), fl!("ask")],
             playback_transition_labels: vec![fl!("gappless"), fl!("crossfade")],
+            artwork_size_labels: vec![fl!("original"), fl!("medium"), fl!("small")],
             is_condensed: false,
             config_handler: _flags.config_handler,
             state_handler: _flags.state_handler,
@@ -1119,6 +1123,15 @@ impl cosmic::Application for AppModel {
                 self.sort_all_playlists();
             }
 
+            Message::GridViewArtworkSize(size) => {
+                if self.config.grid_artwork_size == size {
+                    return Task::none();
+                }
+
+                config_set!(grid_artwork_size, size);
+                self.config.grid_artwork_size = size;
+            }
+
             Message::ListSelectRow(index) => {
                 let Some(playlist_id) = self.view_playlist else {
                     return Task::none();
@@ -1708,6 +1721,15 @@ impl cosmic::Application for AppModel {
                 self.sort_all_playlists();
             }
 
+            Message::ToggleRegenerateThumbnailsOnUpdate(regenerate) => {
+                if self.config.regenerate_thumbnails_on_update == regenerate {
+                    return Task::none();
+                }
+
+                config_set!(regenerate_thumbnails_on_update, regenerate);
+                self.config.regenerate_thumbnails_on_update = regenerate;
+            }
+
             Message::ToggleContextPage(context_page) => {
                 if self.context_page == context_page {
                     // Close the context drawer if the toggled context page is the same.
@@ -1871,8 +1893,18 @@ impl cosmic::Application for AppModel {
                 let cancel_token = CancellationToken::new();
                 self.library_update_cancel = Some(cancel_token.clone()); // ← Store it
 
+                if self.config.regenerate_thumbnails_on_update {
+                    self.image_store.clear();
+                }
+
                 // Spawn the scan with cancellation support
-                LibraryService::scan_library(library_paths, xdg_dirs, tx, cancel_token);
+                LibraryService::scan_library(
+                    library_paths,
+                    xdg_dirs,
+                    tx,
+                    cancel_token,
+                    self.config.regenerate_thumbnails_on_update,
+                );
 
                 return cosmic::Task::stream(UnboundedReceiverStream::new(rx))
                     .map(|progress| cosmic::Action::App(Message::LibraryProgress(progress)));
@@ -2287,6 +2319,7 @@ impl AppModel {
             PlaybackTransitionMode::Gapless => 0,
             PlaybackTransitionMode::Crossfade => 1,
         };
+        let grid_artwork_size_selected = self.config.grid_artwork_size.selected_index();
         let mut library_column = widget::column();
 
         library_column = library_column.push(
@@ -2388,6 +2421,14 @@ impl AppModel {
             });
         }
 
+        let grid_view_section = settings::section().title(fl!("grid-view")).add({
+            settings::item::builder(fl!("artwork-size")).control(widget::dropdown(
+                &self.artwork_size_labels,
+                Some(grid_artwork_size_selected),
+                move |index| Message::GridViewArtworkSize(ArtworkSize::from_index(index)),
+            ))
+        });
+
         let mut list_view_section = settings::section()
             .title(fl!("list-view"))
             .add({
@@ -2415,6 +2456,16 @@ impl AppModel {
                 )
             });
         }
+
+        let library_section = settings::section()
+            .title(fl!("library"))
+            .add(library_column)
+            .add({
+                settings::item::builder(fl!("regenerate-thumbnails-on-update")).control(
+                    toggler(self.config.regenerate_thumbnails_on_update)
+                        .on_toggle(Message::ToggleRegenerateThumbnailsOnUpdate),
+                )
+            });
 
         settings::view_column(vec![
             settings::section()
@@ -2451,11 +2502,9 @@ impl AppModel {
                 })
                 .into(),
             playback_section.into(),
+            grid_view_section.into(),
             list_view_section.into(),
-            settings::section()
-                .title(fl!("library"))
-                .add(library_column)
-                .into(),
+            library_section.into(),
         ])
         .into()
     }
@@ -3167,14 +3216,18 @@ impl AppModel {
 
         for metadata in self.library.media.values() {
             if let Some(artwork_filename) = &metadata.artwork_filename {
-                artwork_filenames.insert(artwork_filename.clone());
+                for filename in artwork_cache_filenames(artwork_filename) {
+                    artwork_filenames.insert(filename);
+                }
             }
         }
 
         for playlist in self.playlist_service.all() {
             for track in playlist.tracks() {
                 if let Some(artwork_filename) = &track.metadata.artwork_filename {
-                    artwork_filenames.insert(artwork_filename.clone());
+                    for filename in artwork_cache_filenames(artwork_filename) {
+                        artwork_filenames.insert(filename);
+                    }
                 }
             }
         }

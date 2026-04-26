@@ -86,6 +86,10 @@ impl ImageStore {
     pub fn request(&self, path: String) {
         let artwork_path = self.artwork_dir.join(path);
 
+        if !artwork_path.is_file() {
+            return;
+        }
+
         if self.cache.lock().unwrap().contains_key(&artwork_path) {
             return;
         }
@@ -100,7 +104,7 @@ impl ImageStore {
         }
     }
 
-    pub fn get(&self, path: &String) -> Option<Arc<Handle>> {
+    pub fn get(&self, path: &str) -> Option<Arc<Handle>> {
         let artwork_path = self.artwork_dir.join(path);
         let mut cache = self.cache.lock().unwrap();
 
@@ -110,6 +114,15 @@ impl ImageStore {
         }
 
         None
+    }
+
+    pub fn exists(&self, path: &str) -> bool {
+        self.artwork_dir.join(path).is_file()
+    }
+
+    pub fn clear(&self) {
+        self.cache.lock().unwrap().clear();
+        self.queue.lock().unwrap().clear();
     }
 
     pub fn cleanup_unused(&self, used_filenames: &HashSet<String>) {

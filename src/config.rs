@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use crate::app::{AppModel, SortBy, SortDirection, ViewMode};
-use crate::constants::DEFAULT_CROSSFADE_DURATION_SECS;
+use crate::constants::{
+    ARTWORK_MEDIUM_SUFFIX, ARTWORK_SMALL_SUFFIX, DEFAULT_CROSSFADE_DURATION_SECS,
+};
+use crate::helpers::artwork_variant_filename;
 use crate::playback_state::RepeatMode;
 use cosmic::{
     Application,
@@ -37,6 +40,45 @@ pub enum AppTheme {
     Dark,
     Light,
     System,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ArtworkSize {
+    Original,
+    Medium,
+    Small,
+}
+
+impl Default for ArtworkSize {
+    fn default() -> Self {
+        Self::Medium
+    }
+}
+
+impl ArtworkSize {
+    pub fn selected_index(&self) -> usize {
+        match self {
+            Self::Original => 0,
+            Self::Medium => 1,
+            Self::Small => 2,
+        }
+    }
+
+    pub fn from_index(index: usize) -> Self {
+        match index {
+            1 => Self::Medium,
+            2 => Self::Small,
+            _ => Self::Original,
+        }
+    }
+
+    pub fn cache_filename(&self, original_filename: &str) -> String {
+        match self {
+            Self::Original => original_filename.to_string(),
+            Self::Medium => artwork_variant_filename(original_filename, ARTWORK_MEDIUM_SUFFIX),
+            Self::Small => artwork_variant_filename(original_filename, ARTWORK_SMALL_SUFFIX),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -166,6 +208,10 @@ pub struct Config {
     pub app_theme: AppTheme,
     pub library_paths: HashSet<String>,
     pub grid_group_by: GridGroupBy,
+    #[serde(default)]
+    pub grid_artwork_size: ArtworkSize,
+    #[serde(default)]
+    pub regenerate_thumbnails_on_update: bool,
     pub list_text_wrap: bool,
     pub list_row_align_top: bool,
     pub list_show_album_column: bool,
@@ -219,6 +265,8 @@ impl Default for Config {
             app_theme: AppTheme::System,
             library_paths: HashSet::new(),
             grid_group_by: GridGroupBy::Track,
+            grid_artwork_size: ArtworkSize::Medium,
+            regenerate_thumbnails_on_update: false,
             list_text_wrap: true,
             list_row_align_top: false,
             list_show_album_column: true,

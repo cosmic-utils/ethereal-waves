@@ -1,3 +1,5 @@
+use crate::constants::{ARTWORK_MEDIUM_SUFFIX, ARTWORK_SMALL_SUFFIX};
+
 use std::{
     path::Path,
     time::{Duration, Instant},
@@ -82,6 +84,25 @@ pub fn join_non_empty(parts: &[&str], separator: &str) -> String {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(separator)
+}
+
+/// Return the thumbnail variant filename for an original artwork cache filename.
+pub fn artwork_variant_filename(original_filename: &str, suffix: &str) -> String {
+    match original_filename.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() && !extension.is_empty() => {
+            format!("{stem}-{suffix}.{extension}")
+        }
+        _ => format!("{original_filename}-{suffix}"),
+    }
+}
+
+/// Return all cache filenames generated for an artwork image.
+pub fn artwork_cache_filenames(original_filename: &str) -> [String; 3] {
+    [
+        original_filename.to_string(),
+        artwork_variant_filename(original_filename, ARTWORK_MEDIUM_SUFFIX),
+        artwork_variant_filename(original_filename, ARTWORK_SMALL_SUFFIX),
+    ]
 }
 
 /// Clamp a value between min and max
