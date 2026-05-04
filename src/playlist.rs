@@ -170,6 +170,9 @@ impl Playlist {
                     .then_with(|| compare_title(a, b, title_sort, case_sensitive)),
             };
 
+            // Possible tie breaker fix
+            let ordering = ordering.then_with(|| compare_path(&a.path, &b.path, case_sensitive));
+
             match sort_direction {
                 SortDirection::Ascending => ordering,
                 SortDirection::Descending => ordering.reverse(),
