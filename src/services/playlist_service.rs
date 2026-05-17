@@ -1,8 +1,15 @@
 use crate::app::PlaylistId;
 use crate::constants::PLAYLISTS_DIR;
+use crate::library::Library;
 use crate::playlist::{Playlist, Track};
 use anyhow::{Result, anyhow};
-use std::{collections::HashSet, fs, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashSet,
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+use url::Url;
 use xdg::BaseDirectories;
 
 pub struct PlaylistService {
@@ -88,6 +95,48 @@ impl PlaylistService {
         // Remove from memory
         self.playlists.retain(|p| p.id() != id);
 
+        Ok(())
+    }
+
+    /// Import an M3U playlist as a new user playlist.
+    pub fn import_m3u(&mut self, path: &Path, library: &Library) -> Result<PlaylistId> {
+        let playlist_name = self.unique_playlist_name(Self::playlist_name_from_path(path));
+        let mut playlist = Playlist::new(playlist_name);
+        let playlist_id = playlist.id();
+
+        for track in Self::read_m3u_tracks(path, library)? {
+            playlist.push(track);
+        }
+
+        self.playlists.push(playlist);
+
+        if let Err(err) = self.save(playlist_id) {
+            self.playlists.retain(|p| p.id() != playlist_id);
+            return Err(err);
+        }
+
+        Ok(playlist_id)
+    }
+
+    /// Export a user playlist to an extended M3U playlist file.
+    pub fn export_m3u(&self, playlist_id: PlaylistId, path: &Path) -> Result<()> {
+        let playlist = self.get(playlist_id)?;
+
+        let mut content = String::from("#EXTM3U\n");
+
+        for track in playlist.tracks() {
+            let duration = track
+                .metadata
+                .duration
+                .map(|duration| duration.round() as i64)
+                .unwrap_or(-1);
+            let title = Self::m3u_track_title(track);
+
+            content.push_str(&format!("#EXTINF:{duration},{title}\n"));
+            content.push_str(&format!("{}\n", track.path.to_string_lossy()));
+        }
+
+        fs::write(path, content)?;
         Ok(())
     }
 
@@ -261,5 +310,142 @@ impl PlaylistService {
         let mut file_path = self.playlist_dir()?;
         file_path.push(format!("{id}.json"));
         Ok(file_path)
+    }
+
+    fn playlist_name_from_path(path: &Path) -> &str {
+        path.file_stem()
+            .and_then(|name| name.to_str())
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or("Imported Playlist")
+    }
+
+    fn unique_playlist_name(&self, base_name: &str) -> String {
+        let base_name = base_name.trim();
+        let base_name = if base_name.is_empty() {
+            "Imported Playlist"
+        } else {
+            base_name
+        };
+
+        if !self.playlists.iter().any(|p| p.name() == base_name) {
+            return base_name.to_string();
+        }
+
+        for suffix in 2.. {
+            let candidate = format!("{base_name} {suffix}");
+            if !self
+                .playlists
+                .iter()
+                .any(|p| p.name() == candidate.as_str())
+            {
+                return candidate;
+            }
+        }
+
+        unreachable!()
+    }
+
+    fn read_m3u_tracks(path: &Path, library: &Library) -> Result<Vec<Track>> {
+        let content = String::from_utf8_lossy(&fs::read(path)?).into_owned();
+        let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut tracks = Vec::new();
+
+        for line in content.lines() {
+            let entry = line.trim().trim_start_matches('\u{feff}').trim();
+
+            if entry.is_empty() || entry.starts_with('#') {
+                continue;
+            }
+
+            let Some(path) = Self::m3u_entry_path(base_dir, entry) else {
+                continue;
+            };
+
+            tracks.push(Self::track_from_path(path, library));
+        }
+
+        Ok(tracks)
+    }
+
+    fn m3u_entry_path(base_dir: &Path, entry: &str) -> Option<PathBuf> {
+        if let Ok(url) = Url::parse(entry) {
+            if url.scheme() == "file" {
+                return url.to_file_path().ok();
+            }
+
+            if !Self::is_windows_drive_path(entry) {
+                return None;
+            }
+        }
+
+        let path = PathBuf::from(entry);
+        Some(if path.is_absolute() {
+            path
+        } else {
+            base_dir.join(path)
+        })
+    }
+
+    fn is_windows_drive_path(entry: &str) -> bool {
+        let bytes = entry.as_bytes();
+
+        bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'\\' | b'/')
+    }
+
+    fn track_from_path(path: PathBuf, library: &Library) -> Track {
+        let track_path = if library.media.contains_key(&path) {
+            path.clone()
+        } else {
+            path.canonicalize()
+                .ok()
+                .filter(|canonical_path| library.media.contains_key(canonical_path))
+                .unwrap_or_else(|| path.clone())
+        };
+
+        let mut track = Track::new();
+        track.path = track_path.clone();
+
+        if let Some(metadata) = library.media.get(&track_path) {
+            track.metadata = metadata.clone();
+        }
+
+        track
+    }
+
+    fn m3u_track_title(track: &Track) -> String {
+        let title = track
+            .metadata
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                track
+                    .path
+                    .file_stem()
+                    .or_else(|| track.path.file_name())
+                    .map(|name| name.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| track.path.to_string_lossy().to_string());
+
+        let artist = track
+            .metadata
+            .artist
+            .as_deref()
+            .or(track.metadata.album_artist.as_deref())
+            .map(str::trim)
+            .filter(|artist| !artist.is_empty());
+
+        let display_title = match artist {
+            Some(artist) => format!("{artist} - {title}"),
+            None => title,
+        };
+
+        display_title.replace('\r', " ").replace('\n', " ")
     }
 }

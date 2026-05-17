@@ -159,6 +159,11 @@ pub enum Message {
     DeletePlaylist,
     DialogCancel,
     DialogComplete,
+    ExportPlaylistDialog,
+    ExportPlaylist(PlaylistId, PathBuf),
+    FileDialogError(Arc<file_chooser::Error>),
+    ImportPlaylistDialog,
+    ImportPlaylist(PathBuf),
     KeyPressed(Modifiers, Key, event::Status),
     KeyReleased(Key),
     LaunchUrl(String),
@@ -731,6 +736,54 @@ impl cosmic::Application for AppModel {
                         }
                         Err(file_chooser::Error::Cancelled) => Message::Noop,
                         Err(why) => Message::LibraryPathOpenError(Arc::new(why)),
+                    }
+                });
+            }
+
+            Message::ImportPlaylistDialog => {
+                return cosmic::task::future(async move {
+                    let dialog =
+                        file_chooser::open::Dialog::new().title(fl!("import-playlist-title"));
+
+                    match dialog.open_file().await {
+                        Ok(response) => match response.url().to_file_path() {
+                            Ok(path) => Message::ImportPlaylist(path),
+                            Err(()) => {
+                                eprintln!("Can't decode URL.");
+                                Message::Noop
+                            }
+                        },
+                        Err(file_chooser::Error::Cancelled) => Message::Noop,
+                        Err(why) => Message::FileDialogError(Arc::new(why)),
+                    }
+                });
+            }
+
+            Message::ExportPlaylistDialog => {
+                let Some(playlist_id) = self.view_playlist else {
+                    return Task::none();
+                };
+
+                let Ok(playlist) = self.playlist_service.get(playlist_id) else {
+                    return Task::none();
+                };
+
+                let file_name = Self::playlist_export_file_name(playlist.name());
+
+                return cosmic::task::future(async move {
+                    let dialog = file_chooser::save::Dialog::new()
+                        .title(fl!("export-playlist-title"))
+                        .file_name(file_name.display().to_string());
+
+                    match dialog.save_file().await {
+                        Ok(response) => {
+                            match response.url().and_then(|url| url.to_file_path().ok()) {
+                                Some(path) => Message::ExportPlaylist(playlist_id, path),
+                                None => Message::Noop,
+                            }
+                        }
+                        Err(file_chooser::Error::Cancelled) => Message::Noop,
+                        Err(why) => Message::FileDialogError(Arc::new(why)),
                     }
                 });
             }
@@ -1324,6 +1377,38 @@ impl cosmic::Application for AppModel {
                     eprintln!("failed to open {url:?}: {err}");
                 }
             },
+
+            Message::FileDialogError(why) => {
+                eprintln!("{why}");
+            }
+
+            Message::ImportPlaylist(path) => {
+                match self.playlist_service.import_m3u(&path, &self.library) {
+                    Ok(id) => {
+                        self.view_playlist = Some(id);
+
+                        let items = self.build_ordered_nav_items();
+                        self.rebuild_nav_from_order(items, id);
+
+                        let order = self.nav_order();
+                        state_set!(playlist_nav_order, order);
+
+                        self.invalidate_all_caches();
+                        return self.update_title();
+                    }
+                    Err(err) => {
+                        eprintln!("Error importing playlist: {err}");
+                    }
+                }
+            }
+
+            Message::ExportPlaylist(playlist_id, path) => {
+                let path = Self::with_m3u_extension(path);
+
+                if let Err(err) = self.playlist_service.export_m3u(playlist_id, &path) {
+                    eprintln!("Error exporting playlist: {err}");
+                }
+            }
 
             // Kick off the New Playlist dialog
             Message::NewPlaylist => {
@@ -2597,6 +2682,38 @@ impl AppModel {
         cosmic::command::set_theme(self.config.app_theme.theme())
     }
 
+    fn playlist_export_file_name(name: &str) -> PathBuf {
+        let sanitized_name: String = name
+            .chars()
+            .map(|c| match c {
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+                c if c.is_control() => '_',
+                c => c,
+            })
+            .collect();
+
+        let file_stem = sanitized_name.trim();
+        let file_stem = if file_stem.is_empty() {
+            "playlist"
+        } else {
+            file_stem
+        };
+
+        PathBuf::from(format!("{file_stem}.m3u"))
+    }
+
+    fn with_m3u_extension(path: PathBuf) -> PathBuf {
+        match path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| extension.to_lowercase())
+            .as_deref()
+        {
+            Some("m3u" | "m3u8") => path,
+            _ => path.with_extension("m3u"),
+        }
+    }
+
     /// Load library and playlists
     pub fn load_data(&mut self) -> Task<cosmic::Action<Message>> {
         // Load library from disk
@@ -3864,6 +3981,8 @@ pub enum MenuAction {
     AddNowPlayingToPlaylist(PlaylistId),
     RemoveSelectedFromPlaylist,
     DeletePlaylist,
+    ExportPlaylist,
+    ImportPlaylist,
     MoveNavDown,
     MoveNavUp,
     NewPlaylist,
@@ -3894,6 +4013,8 @@ impl menu::action::MenuAction for MenuAction {
             MenuAction::AddNowPlayingToPlaylist(id) => Message::AddNowPlayingToPlaylist(*id),
             MenuAction::RemoveSelectedFromPlaylist => Message::RemoveSelectedFromPlaylist,
             MenuAction::DeletePlaylist => Message::DeletePlaylist,
+            MenuAction::ExportPlaylist => Message::ExportPlaylistDialog,
+            MenuAction::ImportPlaylist => Message::ImportPlaylistDialog,
             MenuAction::MoveNavDown => Message::MoveNavDown,
             MenuAction::MoveNavUp => Message::MoveNavUp,
             MenuAction::NewPlaylist => Message::NewPlaylist,

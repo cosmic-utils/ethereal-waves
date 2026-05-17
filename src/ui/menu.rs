@@ -82,6 +82,17 @@ pub fn menu_bar<'a>(app: &AppModel) -> Element<'a, Message> {
             selected_count > 0,
         ),
         menu::Item::Divider,
+        menu::Item::Button(
+            fl!("import-playlist-menu"),
+            None,
+            MenuAction::ImportPlaylist,
+        ),
+        menu_button_optional(
+            fl!("export-playlist-menu"),
+            MenuAction::ExportPlaylist,
+            has_playlist,
+        ),
+        menu::Item::Divider,
         menu_button_optional(
             fl!("update-library"),
             MenuAction::UpdateLibrary,

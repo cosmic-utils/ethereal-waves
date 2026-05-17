@@ -61,6 +61,8 @@ volume-down = Volume Down
 group-by = Group By
 sort-by = Sort By
 sorting = Sorting
+import-playlist-menu = Import Playlist...
+export-playlist-menu = Export Playlist...
 
 playlist-duplicates = Playlist Duplicates
 allow = Allow
@@ -127,3 +129,6 @@ disc-total-short = Discs
 # Empty library page
 go-to-view = Go to View /
 then-update-library =  / Library to add music. Then update your library!
+
+import-playlist-title = Import Playlist
+export-playlist-title = Export Playlist

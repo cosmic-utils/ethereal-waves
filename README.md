@@ -22,7 +22,7 @@ Non-exhaustive list of planned features in no particular order:
 - [x] Crossfading between tracks
 - [x] Grid view
 - [x] More column options in list view (calling this complete for the time being)
-- [ ] Import / Export .m3u playlists
+- [x] Import / Export .m3u playlists
 - [ ] MPRIS support (much improved but not entirely complete)
 - [ ] Sorting options
 - [ ] Shuffle modes
