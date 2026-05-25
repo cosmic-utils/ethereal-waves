@@ -230,6 +230,7 @@ pub enum Message {
     UpdateConfig(Config),
     UpdateDialog(DialogPage),
     UpdateLibrary,
+    FullLibraryUpdate,
     VolumeDown,
     VolumeUp,
     WindowResized(Size),
@@ -1963,36 +1964,11 @@ impl cosmic::Application for AppModel {
             },
 
             Message::UpdateLibrary => {
-                if self.is_updating {
-                    return Task::none();
-                }
-                self.is_updating = true;
-                self.update_progress = 0.0;
+                return self.start_library_update(false);
+            }
 
-                let library_paths = self.config.library_paths.clone();
-                let xdg_dirs = self.app_xdg_dirs.clone();
-
-                let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-                // Create cancellation token
-                let cancel_token = CancellationToken::new();
-                self.library_update_cancel = Some(cancel_token.clone()); // ← Store it
-
-                if self.config.regenerate_thumbnails_on_update {
-                    self.image_store.clear();
-                }
-
-                // Spawn the scan with cancellation support
-                LibraryService::scan_library(
-                    library_paths,
-                    xdg_dirs,
-                    tx,
-                    cancel_token,
-                    self.config.regenerate_thumbnails_on_update,
-                );
-
-                return cosmic::Task::stream(UnboundedReceiverStream::new(rx))
-                    .map(|progress| cosmic::Action::App(Message::LibraryProgress(progress)));
+            Message::FullLibraryUpdate => {
+                return self.start_library_update(true);
             }
 
             Message::VolumeDown => {
@@ -2420,9 +2396,14 @@ impl AppModel {
                 )
                 .push(
                     widget::column()
+                        .spacing(space_xxs)
                         .push(
                             widget::button::text(fl!("update-library"))
                                 .on_press(Message::UpdateLibrary),
+                        )
+                        .push(
+                            widget::button::text(fl!("full-library-update"))
+                                .on_press(Message::FullLibraryUpdate),
                         )
                         .width(Length::FillPortion(1))
                         .align_x(Alignment::End),
@@ -2675,6 +2656,54 @@ impl AppModel {
         }
 
         column.into()
+    }
+
+    /// Starts a library update task, optionally performing a full update
+    fn start_library_update(&mut self, full_update: bool) -> Task<cosmic::Action<Message>> {
+        if self.is_updating {
+            return Task::none();
+        }
+
+        self.is_updating = true;
+        self.update_progress = 0.0;
+        self.update_total = 0.0;
+        self.update_percent = 0.0;
+        self.update_progress_display = "0".into();
+
+        let library_paths = self.config.library_paths.clone();
+        let xdg_dirs = self.app_xdg_dirs.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let regenerate_thumbnails = full_update && self.config.regenerate_thumbnails_on_update;
+
+        // Create cancellation token
+        let cancel_token = CancellationToken::new();
+        self.library_update_cancel = Some(cancel_token.clone());
+
+        if regenerate_thumbnails {
+            self.image_store.clear();
+        }
+
+        if full_update {
+            LibraryService::scan_library(
+                library_paths,
+                xdg_dirs,
+                tx,
+                cancel_token,
+                regenerate_thumbnails,
+            );
+        } else {
+            LibraryService::scan_new_library_files(
+                library_paths,
+                self.library.clone(),
+                xdg_dirs,
+                tx,
+                cancel_token,
+                regenerate_thumbnails,
+            );
+        }
+
+        cosmic::Task::stream(UnboundedReceiverStream::new(rx))
+            .map(|progress| cosmic::Action::App(Message::LibraryProgress(progress)))
     }
 
     /// Updates the cosmic config, in particular the theme
@@ -3997,6 +4026,7 @@ pub enum MenuAction {
     ToggleShuffle,
     TrackInfoPanel,
     UpdateLibrary,
+    FullLibraryUpdate,
     VolumeDown,
     VolumeUp,
     ZoomIn,
@@ -4029,6 +4059,7 @@ impl menu::action::MenuAction for MenuAction {
             MenuAction::ToggleShuffle => Message::ToggleShuffle,
             MenuAction::TrackInfoPanel => Message::ToggleContextPage(ContextPage::TrackInfo),
             MenuAction::UpdateLibrary => Message::UpdateLibrary,
+            MenuAction::FullLibraryUpdate => Message::FullLibraryUpdate,
             MenuAction::VolumeDown => Message::VolumeDown,
             MenuAction::VolumeUp => Message::VolumeUp,
             MenuAction::ZoomIn => Message::ZoomIn,

@@ -102,13 +102,7 @@ impl LibraryService {
             .map_err(|e| LibraryError::InvalidData(format!("Failed to save library: {}", e)))
     }
 
-    /// Scan library paths and extract metadata in a background thread
-    ///
-    /// This spawns a thread that:
-    /// 1. Walks all provided paths to find audio files
-    /// 2. Extracts metadata using GStreamer
-    /// 3. Caches artwork
-    /// 4. Sends progress updates via the channel
+    /// Scan all library paths and extract metadata in a background thread.
     pub fn scan_library(
         paths: HashSet<String>,
         xdg_dirs: Arc<BaseDirectories>,
@@ -116,10 +110,52 @@ impl LibraryService {
         cancel_token: CancellationToken,
         regenerate_thumbnails: bool,
     ) {
-        std::thread::spawn(move || {
-            let mut library = Library::new();
+        Self::scan_library_with_existing(
+            paths,
+            Library::new(),
+            false,
+            xdg_dirs,
+            progress_tx,
+            cancel_token,
+            regenerate_thumbnails,
+        );
+    }
 
-            // Step 1: Collect all audio file paths
+    /// Scan library paths for entries not already in the existing library
+    pub fn scan_new_library_files(
+        paths: HashSet<String>,
+        existing_library: Library,
+        xdg_dirs: Arc<BaseDirectories>,
+        progress_tx: UnboundedSender<LibraryProgress>,
+        cancel_token: CancellationToken,
+        regenerate_thumbnails: bool,
+    ) {
+        Self::scan_library_with_existing(
+            paths,
+            existing_library,
+            true,
+            xdg_dirs,
+            progress_tx,
+            cancel_token,
+            regenerate_thumbnails,
+        );
+    }
+
+    /// Scan new library files, skipping existing if `skip_existing` is true
+    fn scan_library_with_existing(
+        paths: HashSet<String>,
+        mut library: Library,
+        skip_existing: bool,
+        xdg_dirs: Arc<BaseDirectories>,
+        progress_tx: UnboundedSender<LibraryProgress>,
+        cancel_token: CancellationToken,
+        regenerate_thumbnails: bool,
+    ) {
+        std::thread::spawn(move || {
+            let mut entries: Vec<(PathBuf, MediaMetaData)> = Vec::new();
+            let mut discovered_paths: HashSet<PathBuf> = HashSet::new();
+
+            // Get file paths - all for full update, skip existing for partial update
             for path in paths {
                 if cancel_token.is_cancelled() {
                     log::info!("Library scan cancelled by user");
@@ -141,14 +177,32 @@ impl LibraryService {
 
                     if VALID_AUDIO_EXTENSIONS.contains(&extension.as_str()) && size > MIN_FILE_SIZE
                     {
-                        library
-                            .media
-                            .insert(entry.into_path(), MediaMetaData::new());
+                        let path = entry.into_path();
+
+                        if skip_existing && library.media.contains_key(&path) {
+                            continue;
+                        }
+
+                        if !discovered_paths.insert(path.clone()) {
+                            continue;
+                        }
+
+                        entries.push((path, MediaMetaData::new()));
                     }
                 }
             }
 
-            // Step 2: Extract metadata from each file
+            if entries.is_empty() {
+                let _ = progress_tx.send(LibraryProgress::Progress {
+                    current: 0.0,
+                    total: 0.0,
+                    percent: 100.0,
+                });
+                let _ = progress_tx.send(LibraryProgress::Complete(library));
+                return;
+            }
+
+            // Extract metadata from each file
             if let Err(err) = gst::init() {
                 eprintln!("Failed to initialize GStreamer: {}", err);
                 if progress_tx
@@ -171,17 +225,13 @@ impl LibraryService {
             }
 
             let mut update_progress: f32 = 0.0;
-            let update_total: f32 = library.media.len() as f32;
+            let update_total: f32 = entries.len() as f32;
 
             let mut last_progress_update = Instant::now();
             let update_progress_interval = Duration::from_millis(PROGRESS_UPDATE_INTERVAL_MS);
 
             let mut last_library_update = Instant::now();
             let update_library_interval = Duration::from_secs(LIBRARY_UPDATE_INTERVAL_SECS);
-
-            let mut entries: Vec<(PathBuf, MediaMetaData)> = library.media.into_iter().collect();
-
-            let mut completed_entries: HashMap<PathBuf, MediaMetaData> = HashMap::new();
 
             let discoverer = match pbutils::Discoverer::new(gst::ClockTime::from_seconds(
                 GSTREAMER_TIMEOUT_SECS,
@@ -224,7 +274,7 @@ impl LibraryService {
                 };
 
                 if ok {
-                    completed_entries.insert(file.clone(), track_metadata.clone());
+                    library.media.insert(file.clone(), track_metadata.clone());
                 }
 
                 let now = Instant::now();
@@ -244,8 +294,7 @@ impl LibraryService {
 
                 if now.duration_since(last_library_update) >= update_library_interval {
                     last_library_update = now;
-                    let _ =
-                        progress_tx.send(LibraryProgress::PartialUpdate(completed_entries.clone()));
+                    let _ = progress_tx.send(LibraryProgress::PartialUpdate(library.media.clone()));
                 }
             }
 
@@ -256,10 +305,7 @@ impl LibraryService {
                 percent: 100.0,
             });
 
-            let mut out = Library::new();
-            out.media = completed_entries;
-
-            let _ = progress_tx.send(LibraryProgress::Complete(out));
+            let _ = progress_tx.send(LibraryProgress::Complete(library));
         });
     }
 

@@ -9,6 +9,7 @@ rename-playlist = Перейменувати добірку
 delete-playlist = Видалити добірку
 library = Фонотека
 update-library = Оновити фонотеку
+full-library-update = Повне оновлення фонотеки
 updating-library = Оновлення фонотеки
 scanning-paths = Пошук музики...
 loading = Завантаження...

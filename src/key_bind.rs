@@ -24,6 +24,7 @@ pub fn key_binds() -> HashMap<KeyBind, MenuAction> {
     }
 
     bind!([Ctrl], Key::Character("u".into()), UpdateLibrary);
+    bind!([Ctrl, Shift], Key::Character("u".into()), FullLibraryUpdate);
     bind!([Ctrl], Key::Character("q".into()), Quit);
     bind!([Ctrl], Key::Character(",".into()), Settings);
     bind!([Ctrl], Key::Character("-".into()), ZoomOut);

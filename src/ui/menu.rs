@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use crate::app::{AppModel, MenuAction, Message, ViewMode};
-use crate::constants::MENU_WIDGET_ID;
+use crate::constants::{MENU_ITEM_HEIGHT, MENU_ITEM_WIDTH, MENU_WIDGET_ID};
 use crate::fl;
 use crate::playback_state::RepeatMode;
 use cosmic::Application;
@@ -98,6 +98,11 @@ pub fn menu_bar<'a>(app: &AppModel) -> Element<'a, Message> {
             MenuAction::UpdateLibrary,
             !app.is_updating,
         ),
+        menu_button_optional(
+            fl!("full-library-update"),
+            MenuAction::FullLibraryUpdate,
+            !app.is_updating,
+        ),
         menu::Item::Divider,
         menu::Item::Button(fl!("quit"), None, MenuAction::Quit),
     ];
@@ -191,8 +196,8 @@ pub fn menu_bar<'a>(app: &AppModel) -> Element<'a, Message> {
     ];
 
     responsive_menu_bar()
-        .item_height(ItemHeight::Dynamic(40))
-        .item_width(ItemWidth::Uniform(250))
+        .item_height(ItemHeight::Dynamic(MENU_ITEM_HEIGHT))
+        .item_width(ItemWidth::Uniform(MENU_ITEM_WIDTH))
         .spacing(1.0)
         .into_element(
             app.core(),

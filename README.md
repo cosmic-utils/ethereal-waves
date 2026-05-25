@@ -29,11 +29,12 @@ Non-exhaustive list of planned features in no particular order:
 - [x] Condensed responsive layout (possibly may build on this later)
 - [x] Drag and drop support (your milage may vary outside of cosmic-comp)
 - [x] Playlist duplicate management
-- [ ] Partial update (Only add new tracks)
+- [x] Partial update (Only add new tracks)
 
 ## Keybindings
 
 - `Ctrl + U`: Update Library
+- `Ctrl + Shift + U`: Full Library Update
 - `Ctrl + Q`: Quit
 - `Ctrl + N`: New Playlist
 - `F2`: Rename Playlist

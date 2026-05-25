@@ -9,6 +9,7 @@ rename-playlist = Byt namn på spellista
 delete-playlist = Radera spellista
 library = Bibliotek
 update-library = Uppdatera bibliotek
+full-library-update = Fullständig biblioteksuppdatering
 updating-library = Uppdaterar bibliotek
 scanning-paths = Skannar sökvägar...
 loading = Laddar...

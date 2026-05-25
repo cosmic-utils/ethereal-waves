@@ -9,6 +9,7 @@ rename-playlist = Přejmenovat playlist
 delete-playlist = Smazat playlist
 library = Knihovna
 update-library = Aktualizovat knihovnu
+full-library-update = Úplná aktualizace knihovny
 updating-library = Aktualizování knihovny
 scanning-paths = Skenování cest...
 loading = Načítání...

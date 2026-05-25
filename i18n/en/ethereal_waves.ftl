@@ -9,6 +9,7 @@ rename-playlist = Rename Playlist
 delete-playlist = Delete Playlist
 library = Library
 update-library = Update Library
+full-library-update = Full Library Update
 updating-library = Updating Library
 scanning-paths = Scanning paths...
 loading = Loading...
