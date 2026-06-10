@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0
-// src/services/library_service.rs
 
 use crate::constants::*;
 use crate::helpers::artwork_variant_filename;

@@ -1,6 +1,6 @@
 [package]
 name = "ethereal-waves"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 license = "GPL-3.0"
 description = "Ethereal Waves"
@@ -73,7 +73,7 @@ single-instance = ["libcosmic/single-instance"]
 opt-level = 1
 
 [profile.release]
-opt-level = 3
+opt-level = 1
 strip = true
 lto = "fat"
 codegen-units = 1

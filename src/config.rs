@@ -232,6 +232,8 @@ pub struct Config {
     pub playback_transition_mode: PlaybackTransitionMode,
     pub crossfade_duration_secs: i32,
     pub view_mode: ViewMode,
+    pub show_notifications: bool,
+    pub show_playlist_update_notifications: bool,
 }
 
 impl Config {
@@ -287,6 +289,8 @@ impl Default for Config {
             playback_transition_mode: PlaybackTransitionMode::Gapless,
             crossfade_duration_secs: DEFAULT_CROSSFADE_DURATION_SECS,
             view_mode: ViewMode::List,
+            show_notifications: true,
+            show_playlist_update_notifications: true,
         }
     }
 }

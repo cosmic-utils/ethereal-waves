@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
+
 use crate::playback_state::PlaybackStatus;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

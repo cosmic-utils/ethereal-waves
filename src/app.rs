@@ -11,6 +11,7 @@ use crate::image_store::ImageStore;
 use crate::key_bind::key_binds;
 use crate::library::Library;
 use crate::mpris::{MediaPlayer2, MediaPlayer2Player, MprisCommand, MprisState};
+use crate::notifications::{AppNotification, NotificationSlot};
 use crate::page::{empty_library, grid_view, list_view, loading};
 use crate::playback_state::{PlaybackStatus, RepeatMode};
 use crate::playlist::{Playlist, Track};
@@ -143,6 +144,9 @@ pub struct AppModel {
     mpris_state: Arc<Mutex<MprisState>>,
     mpris_connection: Option<zbus::Connection>,
     mpris_connection_rx: Option<std::sync::mpsc::Receiver<Result<zbus::Connection, String>>>,
+
+    notification_ids: HashMap<NotificationSlot, u32>,
+    last_notified_track_id: Option<String>,
 }
 
 /// Messages emitted by the application and its widgets.
@@ -186,6 +190,10 @@ pub enum Message {
     NewPlaylist,
     Next,
     Noop,
+    NotificationSent {
+        slot: NotificationSlot,
+        result: Result<u32, String>,
+    },
     PlayPause,
     PlaybackTransitionMode(PlaybackTransitionMode),
     PlaylistDuplicateDialogAction(PlaylistDuplicateDialogAction),
@@ -227,6 +235,8 @@ pub enum Message {
     ToggleRepeat,
     ToggleRepeatMode,
     ToggleShuffle,
+    ToggleNotifications(bool),
+    TogglePlaylistUpdateNotifications(bool),
     UpdateConfig(Config),
     UpdateDialog(DialogPage),
     UpdateLibrary,
@@ -355,6 +365,8 @@ impl cosmic::Application for AppModel {
             search_term: None,
             image_store: ImageStore::new(artwork_dir.clone()),
             playlist_service: PlaylistService::new(Arc::new(app_xdg_dirs.clone())),
+            notification_ids: HashMap::new(),
+            last_notified_track_id: None,
         };
 
         // Apply persisted playback settings to the engine before any session starts
@@ -573,6 +585,7 @@ impl cosmic::Application for AppModel {
             DialogPage::ConfirmPlaylistDuplicate {
                 destination_id,
                 tracks,
+                ..
             } => {
                 let track = tracks.front().unwrap();
                 let destination_name = self
@@ -816,7 +829,8 @@ impl cosmic::Application for AppModel {
                     Err(_) => return Task::none(),
                 };
 
-                self.add_tracks_to_playlist_with_duplicate_policy(destination_id, selected_tracks);
+                return self
+                    .add_tracks_to_playlist_with_duplicate_policy(destination_id, selected_tracks);
             }
 
             Message::AddNowPlayingToPlaylist(destination_id) => {
@@ -831,7 +845,7 @@ impl cosmic::Application for AppModel {
                             ..Default::default()
                         };
 
-                        self.add_tracks_to_playlist_with_duplicate_policy(
+                        return self.add_tracks_to_playlist_with_duplicate_policy(
                             destination_id,
                             vec![track],
                         );
@@ -883,6 +897,8 @@ impl cosmic::Application for AppModel {
                         if started {
                             self.sync_playback_output_from_state();
                             self.playback_service.play();
+                            self.list_last_clicked = Some(now);
+                            return self.notify_now_playing_task();
                         }
                     }
                 }
@@ -915,6 +931,8 @@ impl cosmic::Application for AppModel {
                         if started {
                             self.sync_playback_output_from_state();
                             self.playback_service.play();
+                            self.list_last_clicked = Some(now);
+                            return self.notify_now_playing_task();
                         }
                     }
                 }
@@ -936,6 +954,21 @@ impl cosmic::Application for AppModel {
             }
 
             Message::DialogCancel => {
+                if let Some(DialogPage::ConfirmPlaylistDuplicate {
+                    destination_id,
+                    tracks,
+                    added,
+                    skipped_duplicates,
+                }) = self.dialog_pages.front().cloned()
+                {
+                    return self.update_or_close_playlist_duplicate_dialog(
+                        destination_id,
+                        VecDeque::new(),
+                        added,
+                        skipped_duplicates + tracks.len(),
+                    );
+                }
+
                 let _ = self.dialog_pages.pop_front();
             }
 
@@ -954,10 +987,9 @@ impl cosmic::Application for AppModel {
                         return Task::none();
                     }
                     DialogPage::ConfirmPlaylistDuplicate { .. } => {
-                        self.handle_playlist_duplicate_dialog_action(
+                        return self.handle_playlist_duplicate_dialog_action(
                             PlaylistDuplicateDialogAction::Add,
                         );
-                        return Task::none();
                     }
                     _ => {}
                 }
@@ -966,13 +998,18 @@ impl cosmic::Application for AppModel {
 
                 match dialog_page {
                     DialogPage::NewPlaylist(name) => {
-                        match self.playlist_service.create(name) {
+                        match self.playlist_service.create(name.clone()) {
                             Ok(id) => {
                                 self.view_playlist = Some(id);
 
-                                // Rebuild nav preserving order
                                 let items = self.build_ordered_nav_items();
                                 self.rebuild_nav_from_order(items, id);
+
+                                let order = self.nav_order();
+                                state_set!(playlist_nav_order, order);
+
+                                return self
+                                    .send_notification(AppNotification::PlaylistCreated { name });
                             }
                             Err(err) => {
                                 eprintln!("Error creating playlist: {}", err);
@@ -981,13 +1018,23 @@ impl cosmic::Application for AppModel {
                     }
 
                     DialogPage::RenamePlaylist { id, name } => {
-                        match self.playlist_service.rename(id, name) {
+                        let old_name = self
+                            .playlist_service
+                            .get(id)
+                            .map(|playlist| playlist.name().to_string())
+                            .unwrap_or_else(|_| fl!("playlist"));
+
+                        match self.playlist_service.rename(id, name.clone()) {
                             Ok(_) => {
                                 self.view_playlist = Some(id);
 
-                                // Rebuild nav preserving order
                                 let items = self.build_ordered_nav_items();
                                 self.rebuild_nav_from_order(items, id);
+
+                                return self.send_notification(AppNotification::PlaylistRenamed {
+                                    old_name,
+                                    new_name: name,
+                                });
                             }
                             Err(err) => {
                                 eprintln!("Error renaming playlist: {}", err);
@@ -996,9 +1043,14 @@ impl cosmic::Application for AppModel {
                     }
 
                     DialogPage::DeletePlaylist(id) => {
+                        let deleted_name = self
+                            .playlist_service
+                            .get(id)
+                            .map(|playlist| playlist.name().to_string())
+                            .unwrap_or_else(|_| fl!("playlist"));
+
                         match self.playlist_service.delete(id) {
                             Ok(_) => {
-                                // Switch to library view
                                 let library_id =
                                     if let Ok(library) = self.playlist_service.get_library() {
                                         library.id()
@@ -1008,9 +1060,15 @@ impl cosmic::Application for AppModel {
 
                                 self.view_playlist = Some(library_id);
 
-                                // Rebuild nav preserving order
                                 let items = self.build_ordered_nav_items();
                                 self.rebuild_nav_from_order(items, library_id);
+
+                                let order = self.nav_order();
+                                state_set!(playlist_nav_order, order);
+
+                                return self.send_notification(AppNotification::PlaylistDeleted {
+                                    name: deleted_name,
+                                });
                             }
                             Err(err) => {
                                 eprintln!("Error deleting playlist: {}", err);
@@ -1024,8 +1082,24 @@ impl cosmic::Application for AppModel {
                             None => return Task::none(),
                         };
 
+                        let (playlist_name, removed) = match self.playlist_service.get(playlist_id)
+                        {
+                            Ok(playlist) => {
+                                (playlist.name().to_string(), playlist.selected().len())
+                            }
+                            Err(err) => {
+                                eprintln!("Error loading playlist: {}", err);
+                                return Task::none();
+                            }
+                        };
+
+                        if removed == 0 {
+                            return Task::none();
+                        }
+
                         if let Err(err) = self.playlist_service.remove_selected(playlist_id) {
                             eprintln!("Error removing tracks: {}", err);
+                            return Task::none();
                         }
 
                         self.invalidate_all_caches();
@@ -1033,16 +1107,28 @@ impl cosmic::Application for AppModel {
                         // Reset viewport scroll to top
                         self.list_start = 0;
                         self.grid_start = 0;
-                        return scrollable::scroll_to(
+                        let scroll_task = scrollable::scroll_to(
                             self.list_scroll_id.clone(),
                             AbsoluteOffset {
                                 x: Some(0.0 as f32),
                                 y: Some(0.0 as f32),
                             },
                         );
+
+                        return Task::batch([
+                            scroll_task,
+                            self.send_notification(AppNotification::PlaylistTracksRemoved {
+                                playlist_name,
+                                removed,
+                            }),
+                        ]);
                     }
 
-                    DialogPage::ConfirmPlaylistDuplicate { .. } => {}
+                    DialogPage::ConfirmPlaylistDuplicate { .. } => {
+                        return self.handle_playlist_duplicate_dialog_action(
+                            PlaylistDuplicateDialogAction::Add,
+                        );
+                    }
                 };
             }
 
@@ -1090,7 +1176,16 @@ impl cosmic::Application for AppModel {
                 }
 
                 LibraryProgress::Complete(library) => {
+                    let old_paths: HashSet<PathBuf> = self.library.media.keys().cloned().collect();
+
+                    let new_paths: HashSet<PathBuf> = library.media.keys().cloned().collect();
+
+                    let added = new_paths.difference(&old_paths).count();
+                    let removed = old_paths.difference(&new_paths).count();
+                    let total = new_paths.len();
+
                     self.library = library;
+
                     let save_result = self.library_service.save(&self.library);
                     self.update_library_playlist();
 
@@ -1100,13 +1195,22 @@ impl cosmic::Application for AppModel {
                         let artwork_filenames = self.artwork_filenames_in_use();
                         self.image_store.cleanup_unused(&artwork_filenames);
                     }
+
                     self.is_updating = false;
+
+                    return self.send_notification(AppNotification::LibraryUpdateComplete {
+                        total,
+                        added,
+                        removed,
+                    });
                 }
 
                 LibraryProgress::Cancelled => {
                     self.is_updating = false;
                     self.update_library_playlist();
-                    log::info!("Library update cancelled")
+                    log::info!("Library update cancelled");
+
+                    return self.send_notification(AppNotification::LibraryUpdateCancelled);
                 }
             },
 
@@ -1505,13 +1609,25 @@ impl cosmic::Application for AppModel {
                     return Task::none();
                 }
 
-                self.add_tracks_to_playlist_with_duplicate_policy(*destination_id, dragged_tracks);
+                return self
+                    .add_tracks_to_playlist_with_duplicate_policy(*destination_id, dragged_tracks);
             }
 
             Message::Next => {
                 self.playback_service
                     .next(self.state.repeat_mode.clone(), self.state.repeat);
+                self.update_mpris();
+                return self.notify_now_playing_task();
             }
+
+            Message::NotificationSent { slot, result } => match result {
+                Ok(id) => {
+                    self.notification_ids.insert(slot, id);
+                }
+                Err(err) => {
+                    log::warn!("desktop notification failed: {err}");
+                }
+            },
 
             Message::PlaybackTransitionMode(playback_transition_mode) => {
                 config_set!(playback_transition_mode, playback_transition_mode);
@@ -1526,7 +1642,7 @@ impl cosmic::Application for AppModel {
             }
 
             Message::PlaylistDuplicateDialogAction(action) => {
-                self.handle_playlist_duplicate_dialog_action(action);
+                return self.handle_playlist_duplicate_dialog_action(action);
             }
 
             Message::PlayPause => {
@@ -1566,10 +1682,15 @@ impl cosmic::Application for AppModel {
                         self.playback_service.pause();
                     }
                 }
+
+                self.update_mpris();
+                return self.notify_now_playing_task();
             }
 
             Message::Previous => {
                 self.playback_service.prev(self.state.repeat_mode.clone());
+                self.update_mpris();
+                return self.notify_now_playing_task();
             }
 
             Message::Quit => {
@@ -1697,6 +1818,7 @@ impl cosmic::Application for AppModel {
             Message::Tick => {
                 self.poll_mpris_connection_ready();
                 self.playback_service.validate_session();
+                let mut playback_changed = false;
 
                 // Process playback events
                 let events = self.playback_service.tick();
@@ -1705,17 +1827,18 @@ impl cosmic::Application for AppModel {
                         PlaybackEvent::TrackEnded => {
                             self.playback_service
                                 .next(self.state.repeat_mode.clone(), self.state.repeat);
+                            playback_changed = true;
                         }
                         PlaybackEvent::GaplessTrackAdvanced
                         | PlaybackEvent::CrossfadeTrackAdvanced => {
-                            // Session index updates inside playback_service.tick()
-                            // Just update MPRIS
-                            self.update_mpris();
+                            // Session index updates inside playback_service.tick().
+                            playback_changed = true;
                         }
                         PlaybackEvent::Error(err) => {
                             eprintln!("Playback error: {}", err);
                             self.playback_service
                                 .next(self.state.repeat_mode.clone(), self.state.repeat);
+                            playback_changed = true;
                         }
                         PlaybackEvent::PositionUpdate(_) => {
                             // Position already updated in service
@@ -1726,6 +1849,7 @@ impl cosmic::Application for AppModel {
                 // Handle MPRIS commands
                 let commands = self.playback_service.process_mpris_commands();
                 for cmd in commands {
+                    playback_changed = true;
                     //println!("mpris message: {:?}", cmd);
                     match cmd {
                         MprisCommand::Play => {
@@ -1788,7 +1912,10 @@ impl cosmic::Application for AppModel {
                         .set_repeat_state(self.state.repeat_mode.clone(), self.state.repeat);
                 }
 
-                self.update_mpris();
+                if playback_changed {
+                    self.update_mpris();
+                    return self.notify_now_playing_task();
+                }
             }
 
             Message::TitleSort(title_sort) => {
@@ -1932,6 +2059,33 @@ impl cosmic::Application for AppModel {
                 // Update current session with new shuffle setting
                 self.sync_shuffle_state_to_session(shuffle);
                 self.update_mpris();
+            }
+
+            Message::ToggleNotifications(show_notifications) => {
+                if self.config.show_notifications == show_notifications {
+                    return Task::none();
+                }
+
+                config_set!(show_notifications, show_notifications);
+                self.config.show_notifications = show_notifications;
+
+                if show_notifications {
+                    return self.notify_now_playing_task();
+                }
+            }
+
+            Message::TogglePlaylistUpdateNotifications(show_playlist_update_notifications) => {
+                if self.config.show_playlist_update_notifications
+                    == show_playlist_update_notifications
+                {
+                    return Task::none();
+                }
+
+                config_set!(
+                    show_playlist_update_notifications,
+                    show_playlist_update_notifications
+                );
+                self.config.show_playlist_update_notifications = show_playlist_update_notifications;
             }
 
             Message::UpdateConfig(config) => {
@@ -2226,26 +2380,57 @@ impl AppModel {
         &mut self,
         destination_id: PlaylistId,
         tracks: VecDeque<Track>,
-    ) {
+        added: usize,
+        skipped_duplicates: usize,
+    ) -> Task<cosmic::Action<Message>> {
         if tracks.is_empty() {
             let _ = self.dialog_pages.pop_front();
-        } else {
-            self.dialog_pages
-                .update_front(DialogPage::ConfirmPlaylistDuplicate {
-                    destination_id,
-                    tracks,
-                });
+
+            if added == 0 {
+                return Task::none();
+            }
+
+            let playlist_name = self
+                .playlist_service
+                .get(destination_id)
+                .map(|playlist| playlist.name().to_string())
+                .unwrap_or_else(|_| fl!("playlist"));
+
+            return self.send_notification(AppNotification::PlaylistTracksAdded {
+                playlist_name,
+                added,
+                skipped_duplicates,
+            });
         }
+
+        self.dialog_pages
+            .update_front(DialogPage::ConfirmPlaylistDuplicate {
+                destination_id,
+                tracks,
+                added,
+                skipped_duplicates,
+            });
+
+        Task::none()
     }
 
-    fn handle_playlist_duplicate_dialog_action(&mut self, action: PlaylistDuplicateDialogAction) {
+    fn handle_playlist_duplicate_dialog_action(
+        &mut self,
+        action: PlaylistDuplicateDialogAction,
+    ) -> Task<cosmic::Action<Message>> {
         let Some(DialogPage::ConfirmPlaylistDuplicate {
             destination_id,
             mut tracks,
+            added,
+            skipped_duplicates,
         }) = self.dialog_pages.front().cloned()
         else {
-            return;
+            return Task::none();
         };
+
+        let mut added = added;
+        let mut skipped_duplicates = skipped_duplicates;
+        let mut added_this_action = 0usize;
 
         match action {
             PlaylistDuplicateDialogAction::Add => {
@@ -2255,104 +2440,164 @@ impl AppModel {
                         .add_tracks(destination_id, vec![track])
                     {
                         eprintln!("Error adding duplicate track: {}", err);
+                    } else {
+                        added += 1;
+                        added_this_action = 1;
                     }
                 }
-
-                self.update_or_close_playlist_duplicate_dialog(destination_id, tracks);
             }
 
             PlaylistDuplicateDialogAction::YesToAll => {
                 let remaining_tracks: Vec<_> = tracks.drain(..).collect();
+                let add_count = remaining_tracks.len();
 
-                if !remaining_tracks.is_empty() {
+                if add_count > 0 {
                     if let Err(err) = self
                         .playlist_service
                         .add_tracks(destination_id, remaining_tracks)
                     {
                         eprintln!("Error adding duplicate tracks: {}", err);
+                    } else {
+                        added += add_count;
+                        added_this_action = add_count;
                     }
                 }
-
-                self.update_or_close_playlist_duplicate_dialog(destination_id, tracks);
             }
 
             PlaylistDuplicateDialogAction::NoToAll => {
+                skipped_duplicates += tracks.len();
                 tracks.clear();
-                self.update_or_close_playlist_duplicate_dialog(destination_id, tracks);
             }
 
             PlaylistDuplicateDialogAction::Skip => {
-                // Skip just the current duplicate and continue prompting
-                let _ = tracks.pop_front();
-                self.update_or_close_playlist_duplicate_dialog(destination_id, tracks);
+                if tracks.pop_front().is_some() {
+                    skipped_duplicates += 1;
+                }
             }
         }
+
+        if added_this_action > 0 {
+            self.invalidate_all_caches();
+        }
+
+        self.update_or_close_playlist_duplicate_dialog(
+            destination_id,
+            tracks,
+            added,
+            skipped_duplicates,
+        )
     }
 
     fn add_tracks_to_playlist_with_duplicate_policy(
         &mut self,
         destination_id: PlaylistId,
         tracks: Vec<Track>,
-    ) {
+    ) -> Task<cosmic::Action<Message>> {
         if tracks.is_empty() {
-            return;
+            return Task::none();
         }
 
-        match self.config.playlist_duplicate_policy {
-            PlaylistDuplicatePolicy::Allow => {
-                if let Err(err) = self.playlist_service.add_tracks(destination_id, tracks) {
-                    eprintln!("Error adding tracks: {}", err);
-                }
+        let playlist_name = match self.playlist_service.get(destination_id) {
+            Ok(playlist) => playlist.name().to_string(),
+            Err(err) => {
+                eprintln!("Error loading playlist: {}", err);
+                return Task::none();
             }
+        };
 
-            PlaylistDuplicatePolicy::Disallow => {
-                match self
-                    .playlist_service
-                    .split_tracks_by_duplicate(destination_id, tracks)
-                {
-                    Ok((tracks_to_add, _duplicates)) => {
-                        if !tracks_to_add.is_empty() {
-                            if let Err(err) = self
-                                .playlist_service
-                                .add_tracks(destination_id, tracks_to_add)
-                            {
-                                eprintln!("Error adding tracks: {}", err);
+        let (added, skipped_duplicates, defer_notification) =
+            match self.config.playlist_duplicate_policy {
+                PlaylistDuplicatePolicy::Allow => {
+                    let added = tracks.len();
+                    if let Err(err) = self.playlist_service.add_tracks(destination_id, tracks) {
+                        eprintln!("Error adding tracks: {}", err);
+                        return Task::none();
+                    }
+                    (added, 0, false)
+                }
+
+                PlaylistDuplicatePolicy::Disallow => {
+                    match self
+                        .playlist_service
+                        .split_tracks_by_duplicate(destination_id, tracks)
+                    {
+                        Ok((tracks_to_add, duplicates)) => {
+                            let added = tracks_to_add.len();
+                            let skipped_duplicates = duplicates.len();
+
+                            if added > 0 {
+                                if let Err(err) = self
+                                    .playlist_service
+                                    .add_tracks(destination_id, tracks_to_add)
+                                {
+                                    eprintln!("Error adding tracks: {}", err);
+                                    return Task::none();
+                                }
                             }
+
+                            (added, skipped_duplicates, false)
+                        }
+                        Err(err) => {
+                            eprintln!("Error checking playlist duplicates: {}", err);
+                            return Task::none();
                         }
                     }
-                    Err(err) => eprintln!("Error checking playlist duplicates: {}", err),
                 }
-            }
 
-            PlaylistDuplicatePolicy::Ask => {
-                match self
-                    .playlist_service
-                    .split_tracks_by_duplicate(destination_id, tracks)
-                {
-                    Ok((tracks_to_add, duplicates)) => {
-                        if !tracks_to_add.is_empty() {
-                            if let Err(err) = self
-                                .playlist_service
-                                .add_tracks(destination_id, tracks_to_add)
-                            {
-                                eprintln!("Error adding tracks: {}", err);
+                PlaylistDuplicatePolicy::Ask => {
+                    match self
+                        .playlist_service
+                        .split_tracks_by_duplicate(destination_id, tracks)
+                    {
+                        Ok((tracks_to_add, duplicates)) => {
+                            let added = tracks_to_add.len();
+                            let defer_notification = !duplicates.is_empty();
+
+                            if added > 0 {
+                                if let Err(err) = self
+                                    .playlist_service
+                                    .add_tracks(destination_id, tracks_to_add)
+                                {
+                                    eprintln!("Error adding tracks: {}", err);
+                                    return Task::none();
+                                }
                             }
-                        }
 
-                        if !duplicates.is_empty() {
-                            self.dialog_pages
-                                .push_back(DialogPage::ConfirmPlaylistDuplicate {
-                                    destination_id,
-                                    tracks: VecDeque::from(duplicates),
-                                });
+                            if defer_notification {
+                                self.dialog_pages
+                                    .push_back(DialogPage::ConfirmPlaylistDuplicate {
+                                        destination_id,
+                                        tracks: VecDeque::from(duplicates),
+                                        added,
+                                        skipped_duplicates: 0,
+                                    });
+                            }
+
+                            (added, 0, defer_notification)
+                        }
+                        Err(err) => {
+                            eprintln!("Error checking playlist duplicates: {}", err);
+                            return Task::none();
                         }
                     }
-                    Err(err) => eprintln!("Error checking playlist duplicates: {}", err),
                 }
-            }
+            };
+
+        if added == 0 {
+            return Task::none();
         }
 
         self.invalidate_all_caches();
+
+        if defer_notification {
+            return Task::none();
+        }
+
+        self.send_notification(AppNotification::PlaylistTracksAdded {
+            playlist_name,
+            added,
+            skipped_duplicates,
+        })
     }
 
     /// Settings page content
@@ -2434,6 +2679,21 @@ impl AppModel {
         }
 
         let ordered_columns = self.config.normalized_list_column_order();
+
+        let notifications_sections = settings::section()
+            .title(fl!("notifications"))
+            .add({
+                settings::item::builder(fl!("show-now-playing-notifications")).control(
+                    toggler(self.config.show_notifications).on_toggle(Message::ToggleNotifications),
+                )
+            })
+            .add({
+                settings::item::builder(fl!("show-playlist-update-notifications")).control(
+                    toggler(self.config.show_playlist_update_notifications)
+                        .on_toggle(Message::TogglePlaylistUpdateNotifications),
+                )
+            });
+
         let sorting_section = settings::section()
             .title("Sorting")
             .add({
@@ -2550,6 +2810,7 @@ impl AppModel {
                     ))
                 })
                 .into(),
+            notifications_sections.into(),
             sorting_section.into(),
             settings::section()
                 .title(fl!("playlist"))
@@ -3972,6 +4233,96 @@ impl AppModel {
     fn max_list_start(track_count: usize, visible_row_count: usize) -> usize {
         track_count.saturating_sub(visible_row_count.max(1))
     }
+
+    fn notify_now_playing_task(&mut self) -> Task<cosmic::Action<Message>> {
+        if !self.config.show_notifications {
+            return Task::none();
+        }
+
+        match self.playback_service.status() {
+            PlaybackStatus::Playing => {}
+            PlaybackStatus::Stopped => {
+                self.last_notified_track_id = None;
+                return Task::none();
+            }
+            PlaybackStatus::Paused => return Task::none(),
+        }
+
+        let Some(now_playing) = self.playback_service.now_playing().cloned() else {
+            self.last_notified_track_id = None;
+            return Task::none();
+        };
+
+        let track_id = now_playing.id.clone().unwrap_or_else(|| {
+            format!(
+                "{}|{}|{}|{:?}",
+                now_playing.title.as_deref().unwrap_or_default(),
+                now_playing.artist.as_deref().unwrap_or_default(),
+                now_playing.album.as_deref().unwrap_or_default(),
+                now_playing.duration,
+            )
+        });
+
+        if self.last_notified_track_id.as_deref() == Some(track_id.as_str()) {
+            return Task::none();
+        }
+
+        self.last_notified_track_id = Some(track_id);
+
+        let image_uri = now_playing
+            .artwork_filename
+            .as_deref()
+            .and_then(|artwork_filename| self.artwork_uri(artwork_filename));
+
+        self.send_notification(AppNotification::NowPlaying {
+            title: fallback_text(now_playing.title.as_deref(), "Unknown Title"),
+            artist: non_empty_text(now_playing.artist.as_deref()),
+            album: non_empty_text(now_playing.album.as_deref()),
+            image_uri,
+        })
+    }
+
+    fn artwork_uri(&self, artwork_filename: &str) -> Option<String> {
+        self.app_xdg_dirs
+            .find_cache_file(format!("{}/{}", ARTWORK_DIR, artwork_filename))
+            .and_then(|artwork_path| url::Url::from_file_path(artwork_path).ok())
+            .map(|artwork_url| artwork_url.to_string())
+    }
+
+    fn send_notification(
+        &mut self,
+        notification: AppNotification,
+    ) -> Task<cosmic::Action<Message>> {
+        if !self.should_send_notification(&notification) {
+            return Task::none();
+        }
+
+        let slot = notification.slot();
+
+        let replaces_id = self.notification_ids.get(&slot).copied().unwrap_or(0);
+
+        cosmic::task::future(async move {
+            cosmic::Action::App(Message::NotificationSent {
+                slot,
+                result: crate::notifications::send(notification, replaces_id).await,
+            })
+        })
+    }
+
+    fn should_send_notification(&self, notification: &AppNotification) -> bool {
+        match notification {
+            AppNotification::NowPlaying { .. } => self.config.show_notifications,
+            AppNotification::PlaylistCreated { .. }
+            | AppNotification::PlaylistRenamed { .. }
+            | AppNotification::PlaylistDeleted { .. }
+            | AppNotification::PlaylistTracksAdded { .. }
+            | AppNotification::PlaylistTracksRemoved { .. } => {
+                self.config.show_playlist_update_notifications
+            }
+            AppNotification::LibraryUpdateComplete { .. }
+            | AppNotification::LibraryUpdateCancelled => true,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -4080,6 +4431,8 @@ pub enum DialogPage {
     ConfirmPlaylistDuplicate {
         destination_id: PlaylistId,
         tracks: VecDeque<Track>,
+        added: usize,
+        skipped_duplicates: usize,
     },
 }
 

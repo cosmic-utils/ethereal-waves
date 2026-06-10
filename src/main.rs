@@ -9,6 +9,7 @@ mod image_store;
 mod key_bind;
 mod library;
 mod mpris;
+mod notifications;
 mod page;
 mod playback_state;
 mod player;

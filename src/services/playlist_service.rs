@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 use crate::app::PlaylistId;
 use crate::constants::PLAYLISTS_DIR;
 use crate::library::Library;

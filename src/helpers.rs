@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0
+
 use crate::constants::{ARTWORK_MEDIUM_SUFFIX, ARTWORK_SMALL_SUFFIX};
 
 use std::{

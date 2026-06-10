@@ -24,8 +24,7 @@ Non-exhaustive list of planned features in no particular order:
 - [x] More column options in list view (calling this complete for the time being)
 - [x] Import / Export .m3u playlists
 - [ ] MPRIS support (much improved but not entirely complete)
-- [ ] Sorting options
-- [ ] Shuffle modes
+- [x] Notifications through DBUS
 - [x] Condensed responsive layout (possibly may build on this later)
 - [x] Drag and drop support (your milage may vary outside of cosmic-comp)
 - [x] Playlist duplicate management

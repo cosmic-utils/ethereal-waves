@@ -1,2 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0
+
 pub mod footer;
 pub mod menu;
