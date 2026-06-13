@@ -109,6 +109,7 @@ pub struct AppModel {
     pub library: Library,
 
     pub is_updating: bool,
+    library_update_start_paths: Option<HashSet<PathBuf>>,
     pub update_progress: f32,
     pub update_total: f32,
     pub update_percent: f32,
@@ -343,6 +344,7 @@ impl cosmic::Application for AppModel {
             initial_load_complete: false,
             library: Library::new(),
             is_updating: false,
+            library_update_start_paths: None,
             update_progress: 0.0,
             update_total: 0.0,
             update_percent: 0.0,
@@ -1176,7 +1178,13 @@ impl cosmic::Application for AppModel {
                 }
 
                 LibraryProgress::Complete(library) => {
-                    let old_paths: HashSet<PathBuf> = self.library.media.keys().cloned().collect();
+                    let old_paths = self.library_update_start_paths.take().unwrap_or_else(|| {
+                        self.library
+                            .media
+                            .keys()
+                            .cloned()
+                            .collect::<HashSet<PathBuf>>()
+                    });
 
                     let new_paths: HashSet<PathBuf> = library.media.keys().cloned().collect();
 
@@ -1188,6 +1196,7 @@ impl cosmic::Application for AppModel {
 
                     let save_result = self.library_service.save(&self.library);
                     self.update_library_playlist();
+                    self.update_user_playlist_metadata_from_library();
 
                     if let Err(e) = save_result {
                         eprintln!("Error saving library: {}", e);
@@ -1207,6 +1216,7 @@ impl cosmic::Application for AppModel {
 
                 LibraryProgress::Cancelled => {
                     self.is_updating = false;
+                    self.library_update_start_paths = None;
                     self.update_library_playlist();
                     log::info!("Library update cancelled");
 
@@ -2926,6 +2936,7 @@ impl AppModel {
         }
 
         self.is_updating = true;
+        self.library_update_start_paths = Some(self.library.media.keys().cloned().collect());
         self.update_progress = 0.0;
         self.update_total = 0.0;
         self.update_percent = 0.0;
@@ -3616,6 +3627,62 @@ impl AppModel {
         }
 
         self.invalidate_all_caches();
+    }
+
+    fn update_user_playlist_metadata_from_library(&mut self) {
+        let playlist_ids: Vec<_> = self
+            .playlist_service
+            .user_playlists()
+            .map(|playlist| playlist.id())
+            .collect();
+        let library_media = self.library.media.clone();
+        let mut updated_any = false;
+
+        for playlist_id in playlist_ids {
+            let mut updated_playlist = None;
+
+            let changed = match self.playlist_service.get_mut(playlist_id) {
+                Ok(playlist) => {
+                    let mut changed = false;
+
+                    for track in playlist.tracks_mut() {
+                        if let Some(metadata) = library_media.get(&track.path) {
+                            if track.metadata != *metadata {
+                                track.metadata = metadata.clone();
+                                changed = true;
+                            }
+                        }
+                    }
+
+                    if changed {
+                        updated_playlist = Some(playlist.clone());
+                    }
+
+                    changed
+                }
+                Err(err) => {
+                    log::warn!("failed to load playlist {playlist_id} for metadata sync: {err}");
+                    false
+                }
+            };
+
+            if changed {
+                updated_any = true;
+
+                if let Err(err) = self.playlist_service.save(playlist_id) {
+                    log::warn!("failed to save playlist {playlist_id} after metadata sync: {err}");
+                }
+
+                if let Some(playlist) = updated_playlist {
+                    self.playback_service.update_session_for_playlist(&playlist);
+                }
+            }
+        }
+
+        if updated_any {
+            self.invalidate_all_caches();
+            self.update_mpris();
+        }
     }
 
     fn artwork_filenames_in_use(&self) -> HashSet<String> {

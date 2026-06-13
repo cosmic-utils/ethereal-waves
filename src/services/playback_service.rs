@@ -291,16 +291,20 @@ impl PlaybackService {
         true
     }
 
-    /// Update session when library is modified
+    /// Update session when the library playlist is modified
     pub fn update_session_for_library(&mut self, library: &Playlist) -> bool {
+        self.update_session_for_playlist(library)
+    }
+
+    /// Update session when its source playlist is modified
+    pub fn update_session_for_playlist(&mut self, playlist: &Playlist) -> bool {
         let current_track_id = self.get_current_track_id();
 
         let Some(session) = &mut self.state.session else {
             return false;
         };
 
-        // Only update if session is playing from library
-        if session.playlist_id != library.id() {
+        if session.playlist_id != playlist.id() {
             return false;
         }
 
@@ -309,7 +313,7 @@ impl PlaybackService {
 
         for old_track in &session.order {
             if let Some(old_id) = &old_track.metadata.id {
-                if let Some(new_track) = library
+                if let Some(new_track) = playlist
                     .tracks()
                     .iter()
                     .find(|t| t.metadata.id.as_ref() == Some(old_id))
@@ -518,7 +522,10 @@ impl PlaybackService {
     }
 
     fn has_current_track(&self) -> bool {
-        self.state.session.as_ref().is_some_and(|session| session.order.get(session.index).is_some())
+        self.state
+            .session
+            .as_ref()
+            .is_some_and(|session| session.order.get(session.index).is_some())
     }
 
     fn clear_session(&mut self) {

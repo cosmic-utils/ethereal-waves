@@ -38,7 +38,7 @@ impl Library {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MediaMetaData {
     pub id: Option<String>,
     pub title: Option<String>,
