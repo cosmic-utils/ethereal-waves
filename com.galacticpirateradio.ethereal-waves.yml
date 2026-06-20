@@ -1,0 +1,62 @@
+app-id: com.galacticpirateradio.ethereal-waves
+runtime: org.freedesktop.Platform
+runtime-version: "25.08"
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: ethereal-waves
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  - --filesystem=xdg-music:ro
+  - --talk-name=com.system76.CosmicSettingsDaemon
+  - --talk-name=com.system76.CosmicSettingsDaemon.*
+  - --talk-name=org.freedesktop.Notifications
+  - --own-name=org.mpris.MediaPlayer2.ethereal-waves
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/cargo
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/pkgconfig
+  - /share/man
+
+modules:
+  - name: cosmic-icons
+    buildsystem: simple
+    build-commands:
+      - install -Dm0644 index.theme /app/share/icons/Cosmic/index.theme
+      - mkdir -p /app/share/icons/Cosmic/scalable
+      - cp -R freedesktop/scalable/. /app/share/icons/Cosmic/scalable/
+      - cp -R extra/scalable/. /app/share/icons/Cosmic/scalable/
+    sources:
+      - type: git
+        url: https://github.com/pop-os/cosmic-icons.git
+        commit: 2c697e8e97cfd619107a872b28c31317281184ff
+
+  - name: ethereal-waves
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_NET_OFFLINE: "true"
+    build-commands:
+      - install -Dm0644 cargo/config .cargo/config.toml
+      - cargo --offline fetch --manifest-path Cargo.toml --locked --verbose
+      - cargo build --offline --release --locked --package ethereal-waves --verbose
+      - install -Dm0755 target/release/ethereal-waves /app/bin/ethereal-waves
+      - install -Dm0644 resources/com.galacticpirateradio.ethereal-waves.desktop /app/share/applications/com.galacticpirateradio.ethereal-waves.desktop
+      - install -Dm0644 resources/com.galacticpirateradio.ethereal-waves.metainfo.xml /app/share/metainfo/com.galacticpirateradio.ethereal-waves.metainfo.xml
+      - install -Dm0644 resources/icons/hicolor/scalable/apps/com.galacticpirateradio.ethereal-waves.svg /app/share/icons/hicolor/scalable/apps/com.galacticpirateradio.ethereal-waves.svg
+    sources:
+      - type: git
+        url: https://github.com/cosmic-utils/ethereal-waves.git
+        tag: v0.7.2
+        commit: 9ca244d15f6d11097dccd158ac58de0e32664419
+      - cargo-sources.json
+      - type: patch
+        path: 0001-metainfo-fixes.patch

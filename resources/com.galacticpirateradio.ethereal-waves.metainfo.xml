@@ -1,68 +1,108 @@
-<?xml version="1.0" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-    <id>com.galacticpirateradio.ethereal-waves</id>
-    <metadata_license>CC0-1.0</metadata_license>
-    <project_license>GPL-3.0</project_license>
-    <name>Ethereal Waves</name>
-    <name xml:lang="uk">Лунохвиля</name>
-    <developer id="com.galacticpirateradio">
-        <name>Natalie Rockot</name>
-    </developer>
-    <summary>Music player based on libcosmic</summary>
-    <summary xml:lang="cs">Hudební přehrávač postavený na libcosmic</summary>
-    <summary xml:lang="uk">Музичний програвач на базі libcosmic</summary>
-    <description>
-        <p>
+  <id>com.galacticpirateradio.ethereal-waves</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0</project_license>
+  <name>Ethereal Waves</name>
+  <name xml:lang="uk">Лунохвиля</name>
+  <developer id="com.galacticpirateradio">
+    <name>Natalie Rockot</name>
+  </developer>
+  <summary>Music player based on libcosmic</summary>
+  <summary xml:lang="cs">Hudební přehrávač postavený na libcosmic</summary>
+  <summary xml:lang="uk">Музичний програвач на базі libcosmic</summary>
+  <description>
+    <p>
             Ethereal Waves is a music player based on libcosmic and gstreamer. It has a focus on simplicity and playing music stored on the local filesystem.
         </p>
-        <p xml:lang="cs">
+    <p xml:lang="cs">
             Ethereal Waves je hudební přehrávač postavený na libcosmic a gstreamer. Zaměřuje se na jednoduchost a přehrávání hudby uložené v lokálním souborovém systému.
         </p>
-    </description>
-    <icon type="stock">com.galacticpirateradio.ethereal-waves</icon>
-    <url type="homepage">https://galacticpirateradio.com/software</url>
-    <url type="vcs-browser">https://github.com/cosmic-utils/ethereal-waves</url>
-    <url type="bugtracker">https://github.com/cosmic-utils/ethereal-waves/issues</url>
-    <releases>
-      <release version="0.1.2" date="2026-02-23">
-        <description>
-          <p>Flatpak update</p>
-        </description>
-      </release>
-    </releases>
-    <screenshots>
-        <screenshot type="default">
-            <caption>Light mode</caption>
-            <caption xml:lang="cs">Světlý režim</caption>
-            <image>https://raw.githubusercontent.com/cosmic-utils/ethereal-waves/master/screenshots/Ethereal%20Waves%20-%20Light%20Mode.png</image>
-        </screenshot>
-        <screenshot>
-            <caption>Dark mode</caption>
-            <caption xml:lang="cs">Tmavý režim</caption>
-            <image>https://raw.githubusercontent.com/cosmic-utils/ethereal-waves/master/screenshots/Ethereal%20Waves%20-%20Dark%20Mode.png</image>
-        </screenshot>
-    </screenshots>
-    <launchable type="desktop-id">com.galacticpirateradio.ethereal-waves.desktop</launchable>
-    <provides>
-        <binary>ethereal-waves</binary>
-    </provides>
-    <requires>
-        <display_length compare="ge">360</display_length>
-    </requires>
-    <supports>
-        <control>keyboard</control>
-        <control>pointing</control>
-        <control>touch</control>
-    </supports>
-    <categories>
-        <category>COSMIC</category>
-        <category>AudioVideo</category>
-        <category>Audio</category>
-        <category>Player</category>
-    </categories>
-    <keywords>
-        <keyword>COSMIC</keyword>
-        <keyword>КОСМІК</keyword>
-    </keywords>
-    <content_rating type="oars-1.1" />
+  </description>
+  <icon type="stock">com.galacticpirateradio.ethereal-waves</icon>
+  <url type="homepage">https://galacticpirateradio.com/software</url>
+  <url type="vcs-browser">https://github.com/cosmic-utils/ethereal-waves</url>
+  <url type="bugtracker">https://github.com/cosmic-utils/ethereal-waves/issues</url>
+  <releases>
+    <release version="0.7.2" date="2026-06-13">
+      <description>
+        <p>Improved desktop notifications, playlist updates, and library metadata refresh behavior.</p>
+      </description>
+    </release>
+    <release version="0.7.1" date="2026-06-10">
+      <description>
+        <p>Updated Ukrainian translation.</p>
+      </description>
+    </release>
+    <release version="0.7.0" date="2026-06-09">
+      <description>
+        <p>Added desktop notifications.</p>
+      </description>
+    </release>
+    <release version="0.6.0" date="2026-05-25">
+      <description>
+        <p>Added partial library updates and UI tweaks.</p>
+      </description>
+    </release>
+    <release version="0.5.0" date="2026-05-17">
+      <description>
+        <p>Added playlist import and export.</p>
+      </description>
+    </release>
+    <release version="0.4.0" date="2026-04-11">
+      <description>
+        <p>Added crossfading between tracks.</p>
+      </description>
+    </release>
+    <release version="0.3.1" date="2026-04-08">
+      <description>
+        <p>Added individual zoom per view.</p>
+      </description>
+    </release>
+    <release version="0.3.0" date="2026-04-07">
+      <description>
+        <p>Updated screenshots and readme.</p>
+      </description>
+    </release>
+    <release version="0.2.2" date="2026-03-28">
+      <description>
+        <p>Fixed MPRIS album artwork.</p>
+      </description>
+    </release>
+  </releases>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Light mode</caption>
+      <caption xml:lang="cs">Světlý režim</caption>
+      <image>https://raw.githubusercontent.com/cosmic-utils/ethereal-waves/v0.7.2/screenshots/Ethereal%20Waves%20-%20Light%20Mode.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Dark mode</caption>
+      <caption xml:lang="cs">Tmavý režim</caption>
+      <image>https://raw.githubusercontent.com/cosmic-utils/ethereal-waves/v0.7.2/screenshots/Ethereal%20Waves%20-%20Dark%20Mode.png</image>
+    </screenshot>
+  </screenshots>
+  <launchable type="desktop-id">com.galacticpirateradio.ethereal-waves.desktop</launchable>
+  <provides>
+    <binary>ethereal-waves</binary>
+  </provides>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </supports>
+  <categories>
+    <category>COSMIC</category>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Player</category>
+  </categories>
+  <keywords>
+    <keyword>COSMIC</keyword>
+    <keyword>КОСМІК</keyword>
+  </keywords>
+  <content_rating type="oars-1.1"/>
 </component>
