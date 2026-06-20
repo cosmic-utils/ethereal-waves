@@ -12,10 +12,11 @@ use cosmic::{
         responsive_menu_bar,
     },
 };
-use std::sync::LazyLock;
+use std::{env, sync::LazyLock};
 
 static MENU_ID: LazyLock<cosmic::widget::Id> =
     LazyLock::new(|| cosmic::widget::Id::new(MENU_WIDGET_ID));
+static USE_SURFACE_MENUS: LazyLock<bool> = LazyLock::new(supports_surface_menus);
 
 pub fn menu_bar<'a>(app: &AppModel) -> Element<'a, Message> {
     let selected_playlist = app
@@ -195,22 +196,50 @@ pub fn menu_bar<'a>(app: &AppModel) -> Element<'a, Message> {
         menu::Item::Button(fl!("about-ethereal-waves"), None, MenuAction::About),
     ];
 
-    responsive_menu_bar()
+    let menu_items = vec![
+        (fl!("file"), file_items),
+        (fl!("playlist"), playlist_items),
+        (fl!("playback"), playback_items),
+        (fl!("view"), view_items),
+    ];
+
+    if *USE_SURFACE_MENUS {
+        responsive_menu_bar()
+            .item_height(ItemHeight::Dynamic(MENU_ITEM_HEIGHT))
+            .item_width(ItemWidth::Uniform(MENU_ITEM_WIDTH))
+            .spacing(1.0)
+            .into_element(
+                app.core(),
+                &app.key_binds,
+                MENU_ID.clone(),
+                Message::Surface,
+                menu_items,
+            )
+    } else {
+        menu::bar(
+            menu_items
+                .into_iter()
+                .map(|(label, items)| {
+                    menu::Tree::with_children(
+                        cosmic::widget::RcElementWrapper::new(Element::from(menu::root(label))),
+                        menu::items(&app.key_binds, items),
+                    )
+                })
+                .collect(),
+        )
         .item_height(ItemHeight::Dynamic(MENU_ITEM_HEIGHT))
         .item_width(ItemWidth::Uniform(MENU_ITEM_WIDTH))
         .spacing(1.0)
-        .into_element(
-            app.core(),
-            &app.key_binds,
-            MENU_ID.clone(),
-            Message::Surface,
-            vec![
-                (fl!("file"), file_items),
-                (fl!("playlist"), playlist_items),
-                (fl!("playback"), playback_items),
-                (fl!("view"), view_items),
-            ],
-        )
+        .into()
+    }
+}
+
+fn supports_surface_menus() -> bool {
+    ["XDG_CURRENT_DESKTOP", "DESKTOP_SESSION"]
+        .into_iter()
+        .filter_map(|name| env::var(name).ok())
+        .map(|value| value.to_ascii_lowercase())
+        .any(|value| value.contains("cosmic") || value.contains("kde") || value.contains("plasma"))
 }
 
 const fn menu_button_optional(

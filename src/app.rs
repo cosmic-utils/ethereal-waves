@@ -390,7 +390,8 @@ impl cosmic::Application for AppModel {
 
     /// Elements to pack at the start of the header bar.
     fn header_start(&self) -> Vec<Element<'_, Self::Message>> {
-        let menu_bar = menu_bar(self);
+        let menu_bar =
+            widget::container(menu_bar(self)).width(Length::Fixed(HEADER_MENU_MIN_WIDTH));
         vec![menu_bar.into()]
     }
 

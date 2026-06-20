@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 
 /// UI Layout Constants
+pub const HEADER_MENU_MIN_WIDTH: f32 = 260.0;
 pub const MENU_ITEM_WIDTH: u16 = 280;
 pub const MENU_ITEM_HEIGHT: u16 = 40;
 pub const BASE_ROW_HEIGHT: f32 = 5.0;
