@@ -3,6 +3,7 @@
 use crate::app::{AppModel, SortBy, SortDirection, ViewMode};
 use crate::constants::{
     ARTWORK_MEDIUM_SUFFIX, ARTWORK_SMALL_SUFFIX, DEFAULT_CROSSFADE_DURATION_SECS,
+    DEFAULT_FOOTER_VISUALIZER_BAR_COUNT, DEFAULT_FOOTER_VISUALIZER_COLOR,
 };
 use crate::helpers::artwork_variant_filename;
 use crate::playback_state::RepeatMode;
@@ -234,6 +235,24 @@ pub struct Config {
     pub view_mode: ViewMode,
     pub show_notifications: bool,
     pub show_playlist_update_notifications: bool,
+    #[serde(default = "default_footer_visualizer_enabled")]
+    pub footer_visualizer_enabled: bool,
+    #[serde(default = "default_footer_visualizer_bar_count")]
+    pub footer_visualizer_bar_count: i32,
+    #[serde(default = "default_footer_visualizer_color")]
+    pub footer_visualizer_color: String,
+}
+
+fn default_footer_visualizer_enabled() -> bool {
+    true
+}
+
+fn default_footer_visualizer_bar_count() -> i32 {
+    DEFAULT_FOOTER_VISUALIZER_BAR_COUNT
+}
+
+fn default_footer_visualizer_color() -> String {
+    DEFAULT_FOOTER_VISUALIZER_COLOR.to_string()
 }
 
 impl Config {
@@ -291,6 +310,9 @@ impl Default for Config {
             view_mode: ViewMode::List,
             show_notifications: true,
             show_playlist_update_notifications: true,
+            footer_visualizer_enabled: default_footer_visualizer_enabled(),
+            footer_visualizer_bar_count: default_footer_visualizer_bar_count(),
+            footer_visualizer_color: default_footer_visualizer_color(),
         }
     }
 }

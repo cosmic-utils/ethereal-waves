@@ -161,6 +161,9 @@ pub enum Message {
     ChangeTrack(usize),
     ChangeTracks(Arc<Vec<usize>>),
     CrossfadeDuration(i32),
+    FooterVisualizerBarCount(i32),
+    FooterVisualizerColor(String),
+    FooterVisualizerEnabled(bool),
     DeletePlaylist,
     DialogCancel,
     DialogComplete,
@@ -377,6 +380,7 @@ impl cosmic::Application for AppModel {
         app.playback_service
             .set_transition_mode(app.config.playback_transition_mode);
         app.sync_crossfade_duration_from_config();
+        app.sync_footer_visualizer_from_config();
         app.sync_playback_output_from_state();
 
         // Create a startup command that sets the window title.
@@ -954,6 +958,40 @@ impl cosmic::Application for AppModel {
                 config_set!(crossfade_duration_secs, crossfade_duration_secs);
                 self.config.crossfade_duration_secs = crossfade_duration_secs;
                 self.sync_crossfade_duration_from_config();
+            }
+
+            Message::FooterVisualizerBarCount(footer_visualizer_bar_count) => {
+                let footer_visualizer_bar_count = footer_visualizer_bar_count.clamp(
+                    MIN_FOOTER_VISUALIZER_BAR_COUNT,
+                    MAX_FOOTER_VISUALIZER_BAR_COUNT,
+                );
+
+                if self.config.footer_visualizer_bar_count == footer_visualizer_bar_count {
+                    return Task::none();
+                }
+
+                config_set!(footer_visualizer_bar_count, footer_visualizer_bar_count);
+                self.config.footer_visualizer_bar_count = footer_visualizer_bar_count;
+                self.sync_footer_visualizer_from_config();
+            }
+
+            Message::FooterVisualizerColor(footer_visualizer_color) => {
+                if self.config.footer_visualizer_color == footer_visualizer_color {
+                    return Task::none();
+                }
+
+                config_set!(footer_visualizer_color, footer_visualizer_color.clone());
+                self.config.footer_visualizer_color = footer_visualizer_color;
+            }
+
+            Message::FooterVisualizerEnabled(footer_visualizer_enabled) => {
+                if self.config.footer_visualizer_enabled == footer_visualizer_enabled {
+                    return Task::none();
+                }
+
+                config_set!(footer_visualizer_enabled, footer_visualizer_enabled);
+                self.config.footer_visualizer_enabled = footer_visualizer_enabled;
+                self.sync_footer_visualizer_from_config();
             }
 
             Message::DialogCancel => {
@@ -2105,6 +2143,7 @@ impl cosmic::Application for AppModel {
                 self.playback_service
                     .set_transition_mode(playback_transition_mode);
                 self.sync_crossfade_duration_from_config();
+                self.sync_footer_visualizer_from_config();
             }
 
             Message::UpdateDialog(dialog_page) => match dialog_page {
@@ -2628,6 +2667,12 @@ impl AppModel {
             .config
             .crossfade_duration_secs
             .clamp(MIN_CROSSFADE_DURATION_SECS, MAX_CROSSFADE_DURATION_SECS);
+        let footer_visualizer_bar_count = self.config.footer_visualizer_bar_count.clamp(
+            MIN_FOOTER_VISUALIZER_BAR_COUNT,
+            MAX_FOOTER_VISUALIZER_BAR_COUNT,
+        );
+        let (footer_visualizer_red, footer_visualizer_green, footer_visualizer_blue) =
+            Self::footer_visualizer_rgb_components(&self.config.footer_visualizer_color);
         let title_sort_selected = match self.config.title_sort {
             TitleSortMode::Alphabetical => 0,
             TitleSortMode::TrackNumber => 1,
@@ -2758,6 +2803,98 @@ impl AppModel {
             });
         }
 
+        let visualizer_section = settings::section()
+            .title("Footer Visualizer")
+            .add({
+                settings::item::builder("Show Footer Visualizer").control(
+                    toggler(self.config.footer_visualizer_enabled)
+                        .on_toggle(Message::FooterVisualizerEnabled),
+                )
+            })
+            .add({
+                settings::item::builder("Bars").control(
+                    row()
+                        .align_y(Alignment::Center)
+                        .spacing(space_xxs)
+                        .push(
+                            widget::slider(
+                                MIN_FOOTER_VISUALIZER_BAR_COUNT..=MAX_FOOTER_VISUALIZER_BAR_COUNT,
+                                footer_visualizer_bar_count,
+                                Message::FooterVisualizerBarCount,
+                            )
+                            .width(Length::Fixed(180.0)),
+                        )
+                        .push(widget::text(footer_visualizer_bar_count.to_string())),
+                )
+            })
+            .add({
+                settings::item::builder("Color").control(
+                    widget::column()
+                        .spacing(space_xxs)
+                        .push(
+                            row()
+                                .align_y(Alignment::Center)
+                                .spacing(space_xxs)
+                                .push(widget::text("R").width(Length::Fixed(16.0)))
+                                .push(
+                                    widget::slider(0..=255, footer_visualizer_red, move |red| {
+                                        Message::FooterVisualizerColor(
+                                            Self::format_footer_visualizer_color(
+                                                red,
+                                                footer_visualizer_green,
+                                                footer_visualizer_blue,
+                                            ),
+                                        )
+                                    })
+                                    .width(Length::Fixed(180.0)),
+                                )
+                                .push(widget::text(footer_visualizer_red.to_string())),
+                        )
+                        .push(
+                            row()
+                                .align_y(Alignment::Center)
+                                .spacing(space_xxs)
+                                .push(widget::text("G").width(Length::Fixed(16.0)))
+                                .push(
+                                    widget::slider(
+                                        0..=255,
+                                        footer_visualizer_green,
+                                        move |green| {
+                                            Message::FooterVisualizerColor(
+                                                Self::format_footer_visualizer_color(
+                                                    footer_visualizer_red,
+                                                    green,
+                                                    footer_visualizer_blue,
+                                                ),
+                                            )
+                                        },
+                                    )
+                                    .width(Length::Fixed(180.0)),
+                                )
+                                .push(widget::text(footer_visualizer_green.to_string())),
+                        )
+                        .push(
+                            row()
+                                .align_y(Alignment::Center)
+                                .spacing(space_xxs)
+                                .push(widget::text("B").width(Length::Fixed(16.0)))
+                                .push(
+                                    widget::slider(0..=255, footer_visualizer_blue, move |blue| {
+                                        Message::FooterVisualizerColor(
+                                            Self::format_footer_visualizer_color(
+                                                footer_visualizer_red,
+                                                footer_visualizer_green,
+                                                blue,
+                                            ),
+                                        )
+                                    })
+                                    .width(Length::Fixed(180.0)),
+                                )
+                                .push(widget::text(footer_visualizer_blue.to_string())),
+                        ),
+                )
+            });
+
         let grid_view_section = settings::section().title(fl!("grid-view")).add({
             settings::item::builder(fl!("artwork-size")).control(widget::dropdown(
                 &self.artwork_size_labels,
@@ -2840,6 +2977,7 @@ impl AppModel {
                 })
                 .into(),
             playback_section.into(),
+            visualizer_section.into(),
             grid_view_section.into(),
             list_view_section.into(),
             library_section.into(),
@@ -2850,6 +2988,53 @@ impl AppModel {
     fn sync_crossfade_duration_from_config(&mut self) {
         self.playback_service
             .set_crossfade_duration_secs(self.config.crossfade_duration_secs);
+    }
+
+    fn sync_footer_visualizer_from_config(&mut self) {
+        self.playback_service.sync_visualizer_settings(
+            self.config.footer_visualizer_enabled,
+            self.config.footer_visualizer_bar_count,
+        );
+    }
+
+    fn footer_visualizer_rgb_components(value: &str) -> (i32, i32, i32) {
+        Self::parse_footer_visualizer_rgb(value)
+            .or_else(|| Self::parse_footer_visualizer_rgb(DEFAULT_FOOTER_VISUALIZER_COLOR))
+            .unwrap_or((125, 95, 255))
+    }
+
+    fn parse_footer_visualizer_rgb(value: &str) -> Option<(i32, i32, i32)> {
+        let hex = value.trim().strip_prefix('#').unwrap_or(value.trim());
+
+        match hex.len() {
+            3 => {
+                let r = i32::from(Self::parse_repeated_hex_digit(&hex[0..1])?);
+                let g = i32::from(Self::parse_repeated_hex_digit(&hex[1..2])?);
+                let b = i32::from(Self::parse_repeated_hex_digit(&hex[2..3])?);
+                Some((r, g, b))
+            }
+            6 => {
+                let r = i32::from(u8::from_str_radix(&hex[0..2], 16).ok()?);
+                let g = i32::from(u8::from_str_radix(&hex[2..4], 16).ok()?);
+                let b = i32::from(u8::from_str_radix(&hex[4..6], 16).ok()?);
+                Some((r, g, b))
+            }
+            _ => None,
+        }
+    }
+
+    fn parse_repeated_hex_digit(value: &str) -> Option<u8> {
+        let digit = u8::from_str_radix(value, 16).ok()?;
+        Some(digit * 17)
+    }
+
+    fn format_footer_visualizer_color(red: i32, green: i32, blue: i32) -> String {
+        format!(
+            "#{:02x}{:02x}{:02x}",
+            red.clamp(0, 255),
+            green.clamp(0, 255),
+            blue.clamp(0, 255)
+        )
     }
 
     /// Track info panel

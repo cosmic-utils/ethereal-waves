@@ -7,12 +7,16 @@ use crate::constants::{
 };
 use crate::mpris::MprisCommand;
 use crate::playback_state::{PlaybackSession, PlaybackState, PlaybackStatus, RepeatMode};
-use crate::player::Player;
+use crate::player::{Player, VisualizerSampleBuffer};
 use crate::playlist::Playlist;
+
 use gst::prelude::*;
 use gstreamer as gst;
 use rand::seq::SliceRandom;
-use std::time::Instant;
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 use tokio::sync::mpsc::UnboundedReceiver;
 use url::Url;
 
@@ -110,6 +114,15 @@ impl PlaybackService {
         self.state.session.as_ref()
     }
 
+    pub fn visualizer_samples(&self) -> Arc<Mutex<VisualizerSampleBuffer>> {
+        self.active_player().visualizer_samples()
+    }
+
+    pub fn sync_visualizer_settings(&mut self, enabled: bool, _bar_count: i32) {
+        self.primary_player.set_visualizer_enabled(enabled);
+        self.secondary_player.set_visualizer_enabled(enabled);
+    }
+
     pub fn set_dragging_slider(&mut self, dragging: bool) {
         self.state.dragging_slider = dragging;
     }
@@ -174,6 +187,7 @@ impl PlaybackService {
         self.crossfade = None;
         self.state.status = PlaybackStatus::Stopped;
         self.state.progress = 0.0;
+        self.clear_visualizer_bands();
     }
 
     pub fn play_pause(&mut self) {
@@ -538,6 +552,7 @@ impl PlaybackService {
         self.state.now_playing = None;
         self.state.status = PlaybackStatus::Stopped;
         self.state.progress = 0.0;
+        self.clear_visualizer_bands();
     }
 
     fn stop_slot(&mut self, slot: PlayerSlot) {
@@ -553,11 +568,17 @@ impl PlaybackService {
         }
 
         let _ = self.player(slot).take_about_to_finish();
+        self.player(slot).clear_visualizer_samples();
     }
 
     fn stop_all_players(&mut self) {
         self.stop_slot(PlayerSlot::Primary);
         self.stop_slot(PlayerSlot::Secondary);
+    }
+
+    fn clear_visualizer_bands(&mut self) {
+        self.primary_player.clear_visualizer_samples();
+        self.secondary_player.clear_visualizer_samples();
     }
 
     fn collapse_to_active_player(&mut self) {

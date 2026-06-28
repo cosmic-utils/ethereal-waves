@@ -1,4 +1,4 @@
-// src/notifications.rs
+// SPDX-License-Identifier: GPL-3.0
 
 use crate::app::APP_ID;
 use std::collections::HashMap;
