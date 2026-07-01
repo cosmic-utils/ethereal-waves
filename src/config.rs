@@ -4,6 +4,7 @@ use crate::app::{AppModel, SortBy, SortDirection, ViewMode};
 use crate::constants::{
     ARTWORK_MEDIUM_SUFFIX, ARTWORK_SMALL_SUFFIX, DEFAULT_CROSSFADE_DURATION_SECS,
     DEFAULT_FOOTER_VISUALIZER_BAR_COUNT, DEFAULT_FOOTER_VISUALIZER_COLOR,
+    DEFAULT_FOOTER_VISUALIZER_MAXIMUM_ALPHA, DEFAULT_FOOTER_VISUALIZER_MINIMUM_ALPHA,
 };
 use crate::helpers::artwork_variant_filename;
 use crate::playback_state::RepeatMode;
@@ -241,6 +242,10 @@ pub struct Config {
     pub footer_visualizer_bar_count: i32,
     #[serde(default = "default_footer_visualizer_color")]
     pub footer_visualizer_color: String,
+    #[serde(default = "default_footer_visualizer_minimum_alpha")]
+    pub footer_visualizer_minimum_alpha: i32,
+    #[serde(default = "default_footer_visualizer_maximum_alpha")]
+    pub footer_visualizer_maximum_alpha: i32,
 }
 
 fn default_footer_visualizer_enabled() -> bool {
@@ -253,6 +258,14 @@ fn default_footer_visualizer_bar_count() -> i32 {
 
 fn default_footer_visualizer_color() -> String {
     DEFAULT_FOOTER_VISUALIZER_COLOR.to_string()
+}
+
+fn default_footer_visualizer_minimum_alpha() -> i32 {
+    DEFAULT_FOOTER_VISUALIZER_MINIMUM_ALPHA
+}
+
+fn default_footer_visualizer_maximum_alpha() -> i32 {
+    DEFAULT_FOOTER_VISUALIZER_MAXIMUM_ALPHA
 }
 
 impl Config {
@@ -313,6 +326,8 @@ impl Default for Config {
             footer_visualizer_enabled: default_footer_visualizer_enabled(),
             footer_visualizer_bar_count: default_footer_visualizer_bar_count(),
             footer_visualizer_color: default_footer_visualizer_color(),
+            footer_visualizer_minimum_alpha: default_footer_visualizer_minimum_alpha(),
+            footer_visualizer_maximum_alpha: default_footer_visualizer_maximum_alpha(),
         }
     }
 }

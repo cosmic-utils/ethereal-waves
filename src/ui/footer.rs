@@ -5,7 +5,9 @@ use crate::constants::{
     DEFAULT_FOOTER_VISUALIZER_COLOR, FOOTER_CONDENSED_BREAKPOINT,
     FOOTER_VISUALIZER_ASSUMED_SAMPLE_RATE_HZ, FOOTER_VISUALIZER_LOWER_CUTOFF_HZ,
     FOOTER_VISUALIZER_UPPER_CUTOFF_HZ, LIBRARY_TRACK_DROP_PREFIX, MAX_FOOTER_VISUALIZER_BAR_COUNT,
-    MIN_FOOTER_VISUALIZER_BAR_COUNT,
+    MAX_FOOTER_VISUALIZER_MAXIMUM_ALPHA, MAX_FOOTER_VISUALIZER_MINIMUM_ALPHA,
+    MIN_FOOTER_VISUALIZER_BAR_COUNT, MIN_FOOTER_VISUALIZER_MAXIMUM_ALPHA,
+    MIN_FOOTER_VISUALIZER_MINIMUM_ALPHA,
 };
 use crate::fl;
 use crate::helpers::*;
@@ -36,6 +38,7 @@ const VISUALIZER_HIGH_FREQUENCY_GAIN_CURVE: f32 = 1.2;
 const VISUALIZER_IDLE_EPSILON: f32 = 0.002;
 const VISUALIZER_ATTACK_RATE: f32 = 45.0;
 const VISUALIZER_DECAY_RATE: f32 = 7.0;
+const FULL_FOOTER_ARTWORK_SIZE: u16 = 85;
 
 pub fn footer<'a>(app: &AppModel) -> Element<'a, Message> {
     let cosmic_theme::Spacing {
@@ -112,7 +115,7 @@ pub fn footer<'a>(app: &AppModel) -> Element<'a, Message> {
     } else {
         full_footer(app, now_playing, play_icon, volume_icon, handle)
     };
-    let controls = footer_controls_with_visualizer(app, controls);
+    let controls = footer_controls_with_visualizer(app, controls, is_condensed);
 
     widget::layer_container(content.push(controls))
         .layer(cosmic_theme::Layer::Primary)
@@ -245,7 +248,7 @@ fn full_footer<'a>(
         ..
     } = theme::active().cosmic().spacing;
 
-    let artwork_size = 85;
+    let artwork_size = FULL_FOOTER_ARTWORK_SIZE;
 
     // Now playing column
     let artwork_drag_data = current_track_drop_data(app);
@@ -385,10 +388,13 @@ fn full_footer<'a>(
 fn footer_controls_with_visualizer<'a>(
     app: &AppModel,
     controls: Element<'a, Message>,
+    is_condensed: bool,
 ) -> Element<'a, Message> {
     if !app.config.footer_visualizer_enabled {
         return controls;
     }
+
+    let cosmic_theme::Spacing { space_xxs, .. } = theme::active().cosmic().spacing;
 
     let bar_count = app.config.footer_visualizer_bar_count.clamp(
         MIN_FOOTER_VISUALIZER_BAR_COUNT,
@@ -398,16 +404,41 @@ fn footer_controls_with_visualizer<'a>(
         .unwrap_or_else(|| Color::from(theme::active().cosmic().accent_color()));
     let color =
         parse_footer_visualizer_color(&app.config.footer_visualizer_color).unwrap_or(fallback);
+    let minimum_alpha = app.config.footer_visualizer_minimum_alpha.clamp(
+        MIN_FOOTER_VISUALIZER_MINIMUM_ALPHA,
+        MAX_FOOTER_VISUALIZER_MINIMUM_ALPHA,
+    ) as f32
+        / 100.0;
+    let maximum_alpha = app.config.footer_visualizer_maximum_alpha.clamp(
+        MIN_FOOTER_VISUALIZER_MAXIMUM_ALPHA,
+        MAX_FOOTER_VISUALIZER_MAXIMUM_ALPHA,
+    ) as f32
+        / 100.0;
+    let maximum_alpha = maximum_alpha.max(minimum_alpha);
 
-    let visualizer: Element<_> = widget::canvas(FooterVisualizer {
+    let visualizer_canvas = widget::canvas(FooterVisualizer {
         bar_count,
         color,
+        minimum_alpha,
+        maximum_alpha,
         playing: app.playback_service.status() == PlaybackStatus::Playing,
         samples: app.playback_service.visualizer_samples(),
     })
     .width(Length::Fill)
-    .height(Length::Fill)
-    .into();
+    .height(Length::Fill);
+
+    let visualizer: Element<_> = if is_condensed {
+        visualizer_canvas.into()
+    } else {
+        widget::row()
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .push(widget::space::horizontal().width(Length::Fixed(
+                f32::from(FULL_FOOTER_ARTWORK_SIZE) + space_xxs as f32,
+            )))
+            .push(visualizer_canvas)
+            .into()
+    };
 
     cosmic::iced::widget::stack(vec![controls])
         .push_under(visualizer)
@@ -420,6 +451,8 @@ fn footer_controls_with_visualizer<'a>(
 struct FooterVisualizer {
     bar_count: usize,
     color: Color,
+    minimum_alpha: f32,
+    maximum_alpha: f32,
     playing: bool,
     samples: Arc<Mutex<VisualizerSampleBuffer>>,
 }
@@ -528,7 +561,8 @@ impl<Message> widget::canvas::Program<Message, Theme, Renderer> for FooterVisual
             let bar =
                 widget::canvas::Path::rectangle(Point::new(x, y), Size::new(bar_width, bar_height));
             let mut color = self.color;
-            color.a = 0.22 + amplitude * 0.34;
+            color.a = (self.minimum_alpha + amplitude * (self.maximum_alpha - self.minimum_alpha))
+                .clamp(0.0, 1.0);
 
             frame.fill(&bar, color);
         }

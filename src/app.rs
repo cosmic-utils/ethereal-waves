@@ -164,6 +164,8 @@ pub enum Message {
     FooterVisualizerBarCount(i32),
     FooterVisualizerColor(String),
     FooterVisualizerEnabled(bool),
+    FooterVisualizerMinimumAlpha(i32),
+    FooterVisualizerMaximumAlpha(i32),
     DeletePlaylist,
     DialogCancel,
     DialogComplete,
@@ -992,6 +994,40 @@ impl cosmic::Application for AppModel {
                 config_set!(footer_visualizer_enabled, footer_visualizer_enabled);
                 self.config.footer_visualizer_enabled = footer_visualizer_enabled;
                 self.sync_footer_visualizer_from_config();
+            }
+
+            Message::FooterVisualizerMinimumAlpha(footer_visualizer_minimum_alpha) => {
+                let footer_visualizer_minimum_alpha = footer_visualizer_minimum_alpha.clamp(
+                    MIN_FOOTER_VISUALIZER_MINIMUM_ALPHA,
+                    MAX_FOOTER_VISUALIZER_MINIMUM_ALPHA,
+                );
+
+                if self.config.footer_visualizer_minimum_alpha == footer_visualizer_minimum_alpha {
+                    return Task::none();
+                }
+
+                config_set!(
+                    footer_visualizer_minimum_alpha,
+                    footer_visualizer_minimum_alpha
+                );
+                self.config.footer_visualizer_minimum_alpha = footer_visualizer_minimum_alpha;
+            }
+
+            Message::FooterVisualizerMaximumAlpha(footer_visualizer_maximum_alpha) => {
+                let footer_visualizer_maximum_alpha = footer_visualizer_maximum_alpha.clamp(
+                    MIN_FOOTER_VISUALIZER_MAXIMUM_ALPHA,
+                    MAX_FOOTER_VISUALIZER_MAXIMUM_ALPHA,
+                );
+
+                if self.config.footer_visualizer_maximum_alpha == footer_visualizer_maximum_alpha {
+                    return Task::none();
+                }
+
+                config_set!(
+                    footer_visualizer_maximum_alpha,
+                    footer_visualizer_maximum_alpha
+                );
+                self.config.footer_visualizer_maximum_alpha = footer_visualizer_maximum_alpha;
             }
 
             Message::DialogCancel => {
@@ -2673,6 +2709,18 @@ impl AppModel {
         );
         let (footer_visualizer_red, footer_visualizer_green, footer_visualizer_blue) =
             Self::footer_visualizer_rgb_components(&self.config.footer_visualizer_color);
+        let footer_visualizer_minimum_alpha = self.config.footer_visualizer_minimum_alpha.clamp(
+            MIN_FOOTER_VISUALIZER_MINIMUM_ALPHA,
+            MAX_FOOTER_VISUALIZER_MINIMUM_ALPHA,
+        );
+        let footer_visualizer_maximum_alpha = self
+            .config
+            .footer_visualizer_maximum_alpha
+            .clamp(
+                MIN_FOOTER_VISUALIZER_MAXIMUM_ALPHA,
+                MAX_FOOTER_VISUALIZER_MAXIMUM_ALPHA,
+            )
+            .max(footer_visualizer_minimum_alpha);
         let title_sort_selected = match self.config.title_sort {
             TitleSortMode::Alphabetical => 0,
             TitleSortMode::TrackNumber => 1,
@@ -2892,6 +2940,46 @@ impl AppModel {
                                 )
                                 .push(widget::text(footer_visualizer_blue.to_string())),
                         ),
+                )
+            })
+            .add({
+                settings::item::builder("Minimum alpha").control(
+                    row()
+                        .align_y(Alignment::Center)
+                        .spacing(space_xxs)
+                        .push(
+                            widget::slider(
+                                MIN_FOOTER_VISUALIZER_MINIMUM_ALPHA
+                                    ..=MAX_FOOTER_VISUALIZER_MINIMUM_ALPHA,
+                                footer_visualizer_minimum_alpha,
+                                Message::FooterVisualizerMinimumAlpha,
+                            )
+                            .width(Length::Fixed(180.0)),
+                        )
+                        .push(widget::text(format!(
+                            "{}%",
+                            footer_visualizer_minimum_alpha
+                        ))),
+                )
+            })
+            .add({
+                settings::item::builder("Maximum alpha").control(
+                    row()
+                        .align_y(Alignment::Center)
+                        .spacing(space_xxs)
+                        .push(
+                            widget::slider(
+                                MIN_FOOTER_VISUALIZER_MAXIMUM_ALPHA
+                                    ..=MAX_FOOTER_VISUALIZER_MAXIMUM_ALPHA,
+                                footer_visualizer_maximum_alpha,
+                                Message::FooterVisualizerMaximumAlpha,
+                            )
+                            .width(Length::Fixed(180.0)),
+                        )
+                        .push(widget::text(format!(
+                            "{}%",
+                            footer_visualizer_maximum_alpha
+                        ))),
                 )
             });
 
