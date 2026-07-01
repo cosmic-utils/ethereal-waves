@@ -7,7 +7,10 @@ use crate::constants::{
 };
 use crate::mpris::MprisCommand;
 use crate::playback_state::{PlaybackSession, PlaybackState, PlaybackStatus, RepeatMode};
-use crate::player::{Player, VisualizerSampleBuffer};
+use crate::player::{
+    PRIMARY_AUDIO_CHANNEL, Player, SECONDARY_AUDIO_CHANNEL, SharedAudioOutput,
+    VisualizerSampleBuffer,
+};
 use crate::playlist::Playlist;
 
 use gst::prelude::*;
@@ -56,6 +59,7 @@ struct CrossfadeState {
 pub struct PlaybackService {
     primary_player: Player,
     secondary_player: Player,
+    shared_audio_output: Option<SharedAudioOutput>,
     active_slot: PlayerSlot,
     state: PlaybackState,
     mpris_rx: UnboundedReceiver<MprisCommand>,
@@ -79,9 +83,34 @@ pub struct PlaybackService {
 
 impl PlaybackService {
     pub fn new(mpris_rx: UnboundedReceiver<MprisCommand>) -> Self {
+        let shared_audio_output = SharedAudioOutput::new();
+        let (primary_player, secondary_player, shared_audio_output) = if let Some(output) =
+            shared_audio_output
+        {
+            let primary_sink = output.playbin_sink(PRIMARY_AUDIO_CHANNEL);
+            let secondary_sink = output.playbin_sink(SECONDARY_AUDIO_CHANNEL);
+
+            match (primary_sink, secondary_sink) {
+                (Some(primary_sink), Some(secondary_sink)) => (
+                    Player::new(Some(primary_sink)),
+                    Player::new(Some(secondary_sink)),
+                    Some(output),
+                ),
+                _ => {
+                    log::warn!(
+                        "failed to create shared playbin sinks; falling back to per-player output"
+                    );
+                    (Player::new(None), Player::new(None), None)
+                }
+            }
+        } else {
+            (Player::new(None), Player::new(None), None)
+        };
+
         Self {
-            primary_player: Player::new(),
-            secondary_player: Player::new(),
+            primary_player,
+            secondary_player,
+            shared_audio_output,
             active_slot: PlayerSlot::Primary,
             state: PlaybackState::new(),
             mpris_rx,
@@ -115,12 +144,20 @@ impl PlaybackService {
     }
 
     pub fn visualizer_samples(&self) -> Arc<Mutex<VisualizerSampleBuffer>> {
-        self.active_player().visualizer_samples()
+        if let Some(output) = &self.shared_audio_output {
+            output.visualizer_samples()
+        } else {
+            self.active_player().visualizer_samples()
+        }
     }
 
     pub fn sync_visualizer_settings(&mut self, enabled: bool, _bar_count: i32) {
-        self.primary_player.set_visualizer_enabled(enabled);
-        self.secondary_player.set_visualizer_enabled(enabled);
+        if let Some(output) = &self.shared_audio_output {
+            output.set_visualizer_enabled(enabled);
+        } else {
+            self.primary_player.set_visualizer_enabled(enabled);
+            self.secondary_player.set_visualizer_enabled(enabled);
+        }
     }
 
     pub fn set_dragging_slider(&mut self, dragging: bool) {
@@ -475,6 +512,10 @@ impl PlaybackService {
             events.push(event);
         }
 
+        if let Some(output) = &self.shared_audio_output {
+            output.drain_bus_messages();
+        }
+
         self.handle_bus_messages(PlayerSlot::Primary, &mut events);
         self.handle_bus_messages(PlayerSlot::Secondary, &mut events);
 
@@ -577,8 +618,12 @@ impl PlaybackService {
     }
 
     fn clear_visualizer_bands(&mut self) {
-        self.primary_player.clear_visualizer_samples();
-        self.secondary_player.clear_visualizer_samples();
+        if let Some(output) = &self.shared_audio_output {
+            output.clear_visualizer_samples();
+        } else {
+            self.primary_player.clear_visualizer_samples();
+            self.secondary_player.clear_visualizer_samples();
+        }
     }
 
     fn collapse_to_active_player(&mut self) {

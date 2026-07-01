@@ -14,13 +14,17 @@ use std::{
 const SPECTRUM_THRESHOLD_DB: f32 = -80.0;
 //const SPECTRUM_INTERVAL_NS: u64 = 16_666_667;
 const SPECTRUM_INTERVAL_NS: u64 = 10_000_000;
-const VISUALIZER_SYNC_DELAY_MS: u64 = 1_200;
+const DEFAULT_VISUALIZER_SYNC_DELAY_MS: u64 = 1_200;
+const SHARED_OUTPUT_VISUALIZER_SYNC_DELAY_MS: u64 = 150;
 const VISUALIZER_HISTORY_MS: u64 = 3_000;
+pub const PRIMARY_AUDIO_CHANNEL: &str = "ethereal-waves-primary";
+pub const SECONDARY_AUDIO_CHANNEL: &str = "ethereal-waves-secondary";
 
 #[derive(Debug)]
 pub struct VisualizerSampleBuffer {
     visible: Vec<f32>,
     frames: VecDeque<VisualizerSampleFrame>,
+    sync_delay: Duration,
 }
 
 #[derive(Debug)]
@@ -30,10 +34,11 @@ struct VisualizerSampleFrame {
 }
 
 impl VisualizerSampleBuffer {
-    fn new(sample_count: usize) -> Self {
+    fn new(sample_count: usize, sync_delay_ms: u64) -> Self {
         Self {
             visible: vec![0.0; sample_count],
             frames: VecDeque::new(),
+            sync_delay: Duration::from_millis(sync_delay_ms),
         }
     }
 
@@ -44,7 +49,7 @@ impl VisualizerSampleBuffer {
             samples,
         });
 
-        let retention = Duration::from_millis(VISUALIZER_SYNC_DELAY_MS + VISUALIZER_HISTORY_MS);
+        let retention = self.sync_delay + Duration::from_millis(VISUALIZER_HISTORY_MS);
         while self
             .frames
             .front()
@@ -55,9 +60,8 @@ impl VisualizerSampleBuffer {
     }
 
     pub fn visible_samples(&mut self) -> Vec<f32> {
-        let display_time = Instant::now()
-            .checked_sub(Duration::from_millis(VISUALIZER_SYNC_DELAY_MS))
-            .unwrap_or_else(Instant::now);
+        let now = Instant::now();
+        let display_time = now.checked_sub(self.sync_delay).unwrap_or(now);
 
         while self
             .frames
@@ -79,6 +83,239 @@ impl VisualizerSampleBuffer {
     }
 }
 
+pub struct SharedAudioOutput {
+    pipeline: gst::Pipeline,
+    spectrum: Option<gst::Element>,
+    visualizer_samples: Arc<Mutex<VisualizerSampleBuffer>>,
+}
+
+impl SharedAudioOutput {
+    pub fn new() -> Option<Self> {
+        match Self::build() {
+            Ok(output) => Some(output),
+            Err(err) => {
+                log::warn!("failed to create shared audio output pipeline: {err}");
+                None
+            }
+        }
+    }
+
+    fn build() -> Result<Self, String> {
+        Self::ensure_gstreamer_initialized();
+
+        let pipeline = gst::Pipeline::new();
+        let visualizer_samples = Arc::new(Mutex::new(VisualizerSampleBuffer::new(
+            FOOTER_VISUALIZER_ANALYZER_BANDS,
+            SHARED_OUTPUT_VISUALIZER_SYNC_DELAY_MS,
+        )));
+
+        let primary_src = Self::inter_audio_src(PRIMARY_AUDIO_CHANNEL)?;
+        let primary_queue = Self::element("queue")?;
+        let primary_convert = Self::element("audioconvert")?;
+        let primary_resample = Self::element("audioresample")?;
+
+        let secondary_src = Self::inter_audio_src(SECONDARY_AUDIO_CHANNEL)?;
+        let secondary_queue = Self::element("queue")?;
+        let secondary_convert = Self::element("audioconvert")?;
+        let secondary_resample = Self::element("audioresample")?;
+
+        let mixer = Self::element("audiomixer")?;
+        let output_convert = Self::element("audioconvert")?;
+        let output_resample = Self::element("audioresample")?;
+        let spectrum = Self::spectrum_filter();
+        let audio_sink = Self::element("autoaudiosink")?;
+
+        if let Some(spectrum) = &spectrum {
+            pipeline
+                .add_many([
+                    &primary_src,
+                    &primary_queue,
+                    &primary_convert,
+                    &primary_resample,
+                    &secondary_src,
+                    &secondary_queue,
+                    &secondary_convert,
+                    &secondary_resample,
+                    &mixer,
+                    &output_convert,
+                    &output_resample,
+                    spectrum,
+                    &audio_sink,
+                ])
+                .map_err(|err| err.to_string())?;
+
+            gst::Element::link_many([
+                &mixer,
+                &output_convert,
+                &output_resample,
+                spectrum,
+                &audio_sink,
+            ])
+            .map_err(|err| err.to_string())?;
+        } else {
+            pipeline
+                .add_many([
+                    &primary_src,
+                    &primary_queue,
+                    &primary_convert,
+                    &primary_resample,
+                    &secondary_src,
+                    &secondary_queue,
+                    &secondary_convert,
+                    &secondary_resample,
+                    &mixer,
+                    &output_convert,
+                    &output_resample,
+                    &audio_sink,
+                ])
+                .map_err(|err| err.to_string())?;
+
+            gst::Element::link_many([&mixer, &output_convert, &output_resample, &audio_sink])
+                .map_err(|err| err.to_string())?;
+        }
+
+        gst::Element::link_many([
+            &primary_src,
+            &primary_queue,
+            &primary_convert,
+            &primary_resample,
+            &mixer,
+        ])
+        .map_err(|err| err.to_string())?;
+        gst::Element::link_many([
+            &secondary_src,
+            &secondary_queue,
+            &secondary_convert,
+            &secondary_resample,
+            &mixer,
+        ])
+        .map_err(|err| err.to_string())?;
+
+        Self::install_spectrum_bus_handler(&pipeline, visualizer_samples.clone());
+
+        pipeline
+            .set_state(gst::State::Playing)
+            .map_err(|err| format!("failed to start shared audio output pipeline: {err:?}"))?;
+
+        Ok(Self {
+            pipeline,
+            spectrum,
+            visualizer_samples,
+        })
+    }
+
+    pub fn playbin_sink(&self, channel: &str) -> Option<gst::Element> {
+        match gst::ElementFactory::make("interaudiosink")
+            .property("channel", channel)
+            .property("sync", true)
+            .build()
+        {
+            Ok(sink) => Some(sink),
+            Err(err) => {
+                log::warn!("failed to create playbin interaudiosink for {channel}: {err}");
+                None
+            }
+        }
+    }
+
+    pub fn visualizer_samples(&self) -> Arc<Mutex<VisualizerSampleBuffer>> {
+        self.visualizer_samples.clone()
+    }
+
+    pub fn set_visualizer_enabled(&self, enabled: bool) {
+        if let Some(spectrum) = &self.spectrum {
+            spectrum.set_property("post-messages", enabled);
+        }
+
+        if !enabled {
+            self.clear_visualizer_samples();
+        }
+    }
+
+    pub fn clear_visualizer_samples(&self) {
+        if let Ok(mut samples) = self.visualizer_samples.lock() {
+            samples.clear();
+        }
+    }
+
+    pub fn drain_bus_messages(&self) {
+        let Some(bus) = self.pipeline.bus() else {
+            return;
+        };
+
+        while let Some(msg) = bus.pop() {
+            use gst::MessageView;
+
+            match msg.view() {
+                MessageView::Error(err) => {
+                    log::warn!("shared audio output error: {}", err.error());
+                }
+                MessageView::Warning(warning) => {
+                    log::warn!("shared audio output warning: {}", warning.error());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn ensure_gstreamer_initialized() {
+        match gst::init() {
+            Ok(_) => {}
+            Err(error) => {
+                panic!("Failed to initialize GStreamer: {:?}", error)
+            }
+        }
+    }
+
+    fn inter_audio_src(channel: &str) -> Result<gst::Element, String> {
+        gst::ElementFactory::make("interaudiosrc")
+            .property("channel", channel)
+            .build()
+            .map_err(|err| err.to_string())
+    }
+
+    fn element(factory_name: &str) -> Result<gst::Element, String> {
+        gst::ElementFactory::make(factory_name)
+            .build()
+            .map_err(|err| err.to_string())
+    }
+
+    fn spectrum_filter() -> Option<gst::Element> {
+        Player::spectrum_filter()
+    }
+
+    fn install_spectrum_bus_handler(
+        pipeline: &gst::Pipeline,
+        visualizer_samples: Arc<Mutex<VisualizerSampleBuffer>>,
+    ) {
+        let Some(bus) = pipeline.bus() else {
+            return;
+        };
+
+        bus.set_sync_handler(move |_bus, msg| {
+            if let gst::MessageView::Element(element) = msg.view() {
+                if let Some(structure) = element.structure() {
+                    if structure.name() == "spectrum" {
+                        if let Some(samples) = Player::spectrum_samples_from_structure(structure) {
+                            if let Ok(mut visualizer_samples) = visualizer_samples.lock() {
+                                visualizer_samples.push(samples);
+                            }
+                        }
+                    }
+                }
+            }
+
+            gst::BusSyncReply::Pass
+        });
+    }
+}
+
+impl Drop for SharedAudioOutput {
+    fn drop(&mut self) {
+        let _ = self.pipeline.set_state(gst::State::Null);
+    }
+}
+
 pub struct Player {
     pub playbin: gst::Element,
     queued_uri: Arc<Mutex<Option<String>>>,
@@ -88,7 +325,7 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new() -> Self {
+    pub fn new(audio_sink: Option<gst::Element>) -> Self {
         match gst::init() {
             Ok(_) => {}
             Err(error) => {
@@ -99,16 +336,24 @@ impl Player {
         let playbin = gst::ElementFactory::make("playbin")
             .build()
             .expect("Failed to create playbin.");
-        let spectrum = Self::spectrum_filter();
+        let spectrum = if audio_sink.is_some() {
+            None
+        } else {
+            Self::spectrum_filter()
+        };
         let visualizer_samples = Arc::new(Mutex::new(VisualizerSampleBuffer::new(
             FOOTER_VISUALIZER_ANALYZER_BANDS,
+            DEFAULT_VISUALIZER_SYNC_DELAY_MS,
         )));
+
+        if let Some(audio_sink) = &audio_sink {
+            playbin.set_property("audio-sink", audio_sink);
+        }
 
         if let Some(spectrum) = &spectrum {
             playbin.set_property("audio-filter", spectrum);
+            Self::install_spectrum_bus_handler(&playbin, visualizer_samples.clone());
         }
-
-        Self::install_spectrum_bus_handler(&playbin, visualizer_samples.clone());
 
         let queued_uri: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let (about_to_finish_tx, about_to_finish_rx) = mpsc::sync_channel::<()>(8);
