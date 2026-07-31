@@ -12,4 +12,5 @@ StartupNotify=true
 Categories=COSMIC;AudioVideo;Audio;Player;
 Keywords=COSMIC;AudioVideo;Audio;Player;
 Keywords[cs]=COSMIC;Média;Zvuk;Audio;Přehrávač;
+Keywords[pt_BR]=COSMIC;Multimídia;Áudio;Player;Reprodutor;Música;
 Keywords[uk]=COSMIC;Космік;Звук;Аудіо;Музика;Програвач;

@@ -10,6 +10,7 @@
   </developer>
   <summary>Music player based on libcosmic</summary>
   <summary xml:lang="cs">Hudební přehrávač postavený na libcosmic</summary>
+  <summary xml:lang="pt_BR">Reprodutor de música baseado em libcosmic</summary>
   <summary xml:lang="uk">Музичний програвач на базі libcosmic</summary>
   <description>
     <p>
@@ -17,6 +18,9 @@
         </p>
     <p xml:lang="cs">
             Ethereal Waves je hudební přehrávač postavený na libcosmic a gstreamer. Zaměřuje se na jednoduchost a přehrávání hudby uložené v lokálním souborovém systému.
+        </p>
+    <p xml:lang="pt_BR">
+            Ethereal Waves é um reprodutor de música baseado em libcosmic e gstreamer. Tem como foco a simplicidade e a reprodução de músicas armazenadas no sistema de arquivos local.
         </p>
   </description>
   <icon type="stock">com.galacticpirateradio.ethereal-waves</icon>
