@@ -27,8 +27,8 @@ impl Playlist {
             }
         }
         Self {
-            id: id,
-            name: name,
+            id,
+            name,
             kind: PlaylistKind::User,
             tracks: Vec::new(),
         }

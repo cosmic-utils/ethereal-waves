@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
 
+// The freedesktop notification D-Bus method has a fixed eight-argument signature.
+#![allow(clippy::too_many_arguments)]
+
 use crate::app::APP_ID;
 use std::collections::HashMap;
 use zbus::{proxy, zvariant::Value};

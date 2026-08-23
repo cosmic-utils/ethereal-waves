@@ -293,16 +293,13 @@ impl SharedAudioOutput {
         };
 
         bus.set_sync_handler(move |_bus, msg| {
-            if let gst::MessageView::Element(element) = msg.view() {
-                if let Some(structure) = element.structure() {
-                    if structure.name() == "spectrum" {
-                        if let Some(samples) = Player::spectrum_samples_from_structure(structure) {
-                            if let Ok(mut visualizer_samples) = visualizer_samples.lock() {
-                                visualizer_samples.push(samples);
-                            }
-                        }
-                    }
-                }
+            if let gst::MessageView::Element(element) = msg.view()
+                && let Some(structure) = element.structure()
+                && structure.name() == "spectrum"
+                && let Some(samples) = Player::spectrum_samples_from_structure(structure)
+                && let Ok(mut visualizer_samples) = visualizer_samples.lock()
+            {
+                visualizer_samples.push(samples);
             }
 
             gst::BusSyncReply::Pass
@@ -366,12 +363,12 @@ impl Player {
                 .expect("about-to-finish: invalid element arg");
 
             // If a next URI has been queued, set it now for seamless transition.
-            if let Ok(guard) = queued_uri_clone.lock() {
-                if let Some(ref uri) = *guard {
-                    playbin_elem.set_property("uri", uri);
-                    // Notify the main thread that a gapless transition was queued.
-                    let _ = about_to_finish_tx.try_send(());
-                }
+            if let Ok(guard) = queued_uri_clone.lock()
+                && let Some(ref uri) = *guard
+            {
+                playbin_elem.set_property("uri", uri);
+                // Notify the main thread that a gapless transition was queued.
+                let _ = about_to_finish_tx.try_send(());
             }
 
             None
@@ -413,16 +410,13 @@ impl Player {
         };
 
         bus.set_sync_handler(move |_bus, msg| {
-            if let gst::MessageView::Element(element) = msg.view() {
-                if let Some(structure) = element.structure() {
-                    if structure.name() == "spectrum" {
-                        if let Some(samples) = Self::spectrum_samples_from_structure(structure) {
-                            if let Ok(mut visualizer_samples) = visualizer_samples.lock() {
-                                visualizer_samples.push(samples);
-                            }
-                        }
-                    }
-                }
+            if let gst::MessageView::Element(element) = msg.view()
+                && let Some(structure) = element.structure()
+                && structure.name() == "spectrum"
+                && let Some(samples) = Self::spectrum_samples_from_structure(structure)
+                && let Ok(mut visualizer_samples) = visualizer_samples.lock()
+            {
+                visualizer_samples.push(samples);
             }
 
             gst::BusSyncReply::Pass
@@ -456,7 +450,11 @@ impl Player {
         }
 
         let channel_count = raw_samples.len() / FOOTER_VISUALIZER_ANALYZER_BANDS;
-        if channel_count == 0 || raw_samples.len() % FOOTER_VISUALIZER_ANALYZER_BANDS != 0 {
+        if channel_count == 0
+            || !raw_samples
+                .len()
+                .is_multiple_of(FOOTER_VISUALIZER_ANALYZER_BANDS)
+        {
             return raw_samples;
         }
 
@@ -480,7 +478,7 @@ impl Player {
     }
 
     pub fn load(&self, uri: &str) {
-        self.playbin.set_property("uri", &uri);
+        self.playbin.set_property("uri", uri);
     }
 
     pub fn play(&mut self) {

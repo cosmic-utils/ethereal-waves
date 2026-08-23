@@ -19,11 +19,11 @@ use cosmic::{
     Element, Renderer, Theme, cosmic_theme,
     iced::{
         Alignment, Color, Font, Length, Point, Rectangle, Size,
+        advanced::{text::Wrapping, widget::Tree},
         clipboard::dnd::DndAction,
         font::{self, Weight},
         mouse, time, window,
     },
-    iced_core::widget::Tree,
     theme, widget,
 };
 use std::sync::{Arc, Mutex};
@@ -56,17 +56,17 @@ pub fn footer<'a>(app: &AppModel) -> Element<'a, Message> {
     };
 
     // Main content container
-    let mut content = widget::column().padding(space_xs);
+    let mut content = widget::column![].padding(space_xs);
 
     // Update progress area
     if app.is_updating {
-        let updating_col = widget::column()
+        let updating_col = widget::column![]
             .spacing(space_xxs)
-            .push(widget::row().push(
-                widget::progress_bar(0.0..=100.0, app.update_percent).girth(progress_bar_height),
+            .push(widget::row![].push(
+                widget::determinate_linear(app.update_percent / 100.0).girth(progress_bar_height),
             ))
             .push(
-                widget::row()
+                widget::row![]
                     .push(widget::text(if app.update_progress == 0.0 {
                         fl!("scanning-paths")
                     } else {
@@ -88,11 +88,11 @@ pub fn footer<'a>(app: &AppModel) -> Element<'a, Message> {
 
     let mut handle: Option<Arc<cosmic::widget::image::Handle>> = None;
 
-    if let Some(now_playing) = &app.playback_service.now_playing() {
-        if let Some(artwork_filename) = &now_playing.artwork_filename {
-            app.image_store.request(artwork_filename.clone());
-            handle = app.image_store.get(&artwork_filename.clone());
-        }
+    if let Some(now_playing) = &app.playback_service.now_playing()
+        && let Some(artwork_filename) = &now_playing.artwork_filename
+    {
+        app.image_store.request(artwork_filename.clone());
+        handle = app.image_store.get(&artwork_filename.clone());
     }
 
     let play_icon = match app.playback_service.status() {
@@ -156,11 +156,11 @@ fn condensed_footer<'a>(
         " - ",
     );
 
-    let mut meta = widget::column().width(Length::Fill);
+    let mut meta = widget::column![].width(Length::Fill);
     if !title_text.is_empty() {
         meta = meta.push(
             widget::text(title_text)
-                .wrapping(cosmic::iced_core::text::Wrapping::WordOrGlyph)
+                .wrapping(Wrapping::WordOrGlyph)
                 .font(Font {
                     weight: Weight::Bold,
                     ..Font::default()
@@ -168,11 +168,10 @@ fn condensed_footer<'a>(
         )
     }
     if !by_text.is_empty() {
-        meta = meta
-            .push(widget::text(by_text).wrapping(cosmic::iced_core::text::Wrapping::WordOrGlyph));
+        meta = meta.push(widget::text(by_text).wrapping(Wrapping::WordOrGlyph));
     }
 
-    let seek_row = widget::row()
+    let seek_row = widget::row![]
         .align_y(Alignment::Center)
         .spacing(space_xxs)
         .width(Length::Fill)
@@ -190,7 +189,7 @@ fn condensed_footer<'a>(
             now_playing.duration.unwrap_or(0.0),
         )));
 
-    let control_row = widget::row()
+    let control_row = widget::row![]
         .align_y(Alignment::Center)
         .spacing(space_xxs)
         .push(artwork)
@@ -225,7 +224,7 @@ fn condensed_footer<'a>(
                 .on_press(Message::ToggleMute),
         );
 
-    widget::column()
+    widget::column![]
         .spacing(space_xxs)
         .push(meta)
         .push(seek_row)
@@ -259,41 +258,39 @@ fn full_footer<'a>(
         .unwrap_or_else(|| fl!("one-track-selected"));
     let artwork = footer_artwork(handle, artwork_size, artwork_drag_data, artwork_drag_label);
 
-    let mut now_playing_text = widget::column();
+    let mut now_playing_text = widget::column![];
     if app.playback_service.now_playing().is_some() {
         now_playing_text = now_playing_text
             .push(
-                widget::text(now_playing.clone().title.unwrap_or(String::new()))
-                    .wrapping(cosmic::iced_core::text::Wrapping::WordOrGlyph)
+                widget::text(now_playing.clone().title.unwrap_or_default())
+                    .wrapping(Wrapping::WordOrGlyph)
                     .font(Font {
                         weight: Weight::Bold,
                         ..Font::default()
                     }),
             )
             .push(
-                widget::text(now_playing.clone().album.unwrap_or(String::new())).font(Font {
+                widget::text(now_playing.clone().album.unwrap_or_default()).font(Font {
                     style: font::Style::Italic,
                     ..Font::default()
                 }),
             )
-            .push(widget::text(
-                now_playing.clone().artist.unwrap_or(String::new()),
-            ))
+            .push(widget::text(now_playing.clone().artist.unwrap_or_default()))
     }
 
-    let now_playing_column = widget::column().width(Length::FillPortion(1)).push(
-        widget::row()
+    let now_playing_column = widget::column![].width(Length::FillPortion(1)).push(
+        widget::row![]
             .spacing(space_xxs)
             .push(artwork)
             .push(now_playing_text),
     );
 
     // Playback controls column
-    let playback_control_column = widget::column()
+    let playback_control_column = widget::column![]
         .width(Length::FillPortion(2))
         // Slider row
         .push(
-            widget::row()
+            widget::row![]
                 .align_y(Alignment::Center)
                 .spacing(space_xxs)
                 .width(Length::Fill)
@@ -315,7 +312,7 @@ fn full_footer<'a>(
         .push(widget::space::vertical().height(space_xxs))
         // Controls row
         .push(
-            widget::row()
+            widget::row![]
                 .align_y(Alignment::Center)
                 .spacing(space_xxs)
                 .width(Length::Fill)
@@ -347,8 +344,8 @@ fn full_footer<'a>(
                 .push(widget::space::horizontal().width(Length::Fill)),
         );
 
-    let other_controls_column = widget::column().width(Length::FillPortion(1)).push(
-        widget::row()
+    let other_controls_column = widget::column![].width(Length::FillPortion(1)).push(
+        widget::row![]
             .align_y(Alignment::Center)
             .spacing(space_xxs)
             .push(widget::space::horizontal().width(Length::FillPortion(1)))
@@ -357,14 +354,14 @@ fn full_footer<'a>(
                     .on_press(Message::ToggleMute),
             )
             .push(
-                widget::column().push(
+                widget::column![].push(
                     widget::slider(0..=100, app.state.volume, Message::SetVolume)
                         .width(Length::Fixed(150.0)),
                 ),
             ),
     );
 
-    let control_row = widget::row()
+    let control_row = widget::row![]
         .spacing(space_xxs)
         .width(Length::Fill)
         .push(now_playing_column.width(Length::FillPortion(1)))
@@ -379,7 +376,7 @@ fn full_footer<'a>(
                 .width(Length::FillPortion(1)),
         );
 
-    widget::column()
+    widget::column![]
         .width(Length::Fill)
         .push(control_row)
         .into()
@@ -430,7 +427,7 @@ fn footer_controls_with_visualizer<'a>(
     let visualizer: Element<_> = if is_condensed {
         visualizer_canvas.into()
     } else {
-        widget::row()
+        widget::row![]
             .width(Length::Fill)
             .height(Length::Fill)
             .push(widget::space::horizontal().width(Length::Fixed(
@@ -640,12 +637,17 @@ fn weighted_sample_average(samples: &[f32], start: f32, end: f32) -> f32 {
     let mut total = 0.0;
     let mut weight_total = 0.0;
 
-    for sample_index in start_sample..end_sample {
+    for (sample_index, sample) in samples
+        .iter()
+        .enumerate()
+        .take(end_sample)
+        .skip(start_sample)
+    {
         let sample_start = sample_index as f32;
         let sample_end = sample_start + 1.0;
         let weight = (sample_end.min(end) - sample_start.max(start)).max(0.0);
 
-        total += samples[sample_index] * weight;
+        total += sample * weight;
         weight_total += weight;
     }
 
@@ -720,8 +722,8 @@ fn draggable_artwork<'a>(
         .action(DndAction::Copy)
         .drag_icon(move |_offset| {
             let badge: cosmic::Element<'static, ()> = widget::layer_container(
-                widget::column().push(
-                    widget::row()
+                widget::column![].push(
+                    widget::row![]
                         .push(widget::text::body(drag_label.clone()))
                         .padding([6, 10]),
                 ),
@@ -747,7 +749,7 @@ fn footer_artwork<'a>(
     let artwork: Element<'a, Message> = handle
         .as_ref()
         .map(|handle| {
-            widget::row()
+            widget::row![]
                 .align_y(Alignment::Center)
                 .width(Length::Fixed(artwork_size as f32))
                 .height(Length::Fixed(artwork_size as f32))
@@ -759,7 +761,7 @@ fn footer_artwork<'a>(
                 .into()
         })
         .unwrap_or_else(|| {
-            widget::layer_container(widget::row())
+            widget::layer_container(widget::row![])
                 .layer(cosmic_theme::Layer::Secondary)
                 .width(Length::Fixed(artwork_size as f32))
                 .height(Length::Fixed(artwork_size as f32))

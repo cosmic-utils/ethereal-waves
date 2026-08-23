@@ -8,10 +8,10 @@ use cosmic::{
     Element, cosmic_theme,
     iced::{
         Alignment, Color, Length, Size,
+        advanced::{text::Wrapping, widget::Tree},
         clipboard::dnd::DndAction,
         font::{Font, Weight},
     },
-    iced_core::{text::Wrapping, widget::Tree},
     theme, widget,
 };
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use std::sync::Arc;
 pub fn content<'a>(app: &'a AppModel) -> Element<'a, Message> {
     let cosmic_theme::Spacing { space_xxs, .. } = theme::active().cosmic().spacing;
 
-    let sort_controls = widget::row()
+    let sort_controls = widget::row![]
         .width(Length::Fill)
         .padding([space_xxs, GRID_VIEW_PADDING as u16])
         .spacing(space_xxs)
@@ -40,7 +40,7 @@ pub fn content<'a>(app: &'a AppModel) -> Element<'a, Message> {
         .push(widget::divider::vertical::default().height(Length::Fixed(20.0)))
         .push(grid_sort_direction_toggle(&app.state.sort_direction));
 
-    widget::column()
+    widget::column![]
         .push(sort_controls)
         .push(widget::divider::horizontal::default())
         .push(
@@ -72,7 +72,7 @@ fn scroll_content_responsive<'a>(app: &'a AppModel, size: Size) -> Element<'a, M
     let visible_cards = view_model.visible_cards.clone();
     let selected_track_ids = Arc::clone(&view_model.selected_track_ids);
 
-    let mut rows = widget::column();
+    let mut rows = widget::column![];
 
     if top_spacer_height > 0.0 {
         rows = rows.push(widget::space::vertical().height(Length::Fixed(top_spacer_height)));
@@ -85,7 +85,7 @@ fn scroll_content_responsive<'a>(app: &'a AppModel, size: Size) -> Element<'a, M
     };
 
     for (row_index, row_chunk) in visible_cards.chunks(column_count).enumerate() {
-        let mut grid_row = widget::row()
+        let mut grid_row = widget::row![]
             .padding([0, view_padding as u16])
             .width(Length::Fill)
             .align_y(Alignment::Start);
@@ -126,16 +126,16 @@ fn scroll_content_responsive<'a>(app: &'a AppModel, size: Size) -> Element<'a, M
         .id(app.list_scroll_id.clone())
         .width(Length::Fill)
         .height(Length::Fill)
-        .on_scroll(|viewport| Message::GridViewScroll(viewport))
+        .on_scroll(Message::GridViewScroll)
         .into()
 }
 
 fn empty_scroller<'a>(app: &'a AppModel) -> Element<'a, Message> {
-    widget::scrollable(widget::column())
+    widget::scrollable(widget::column![])
         .id(app.list_scroll_id.clone())
         .width(Length::Fill)
         .height(Length::Fill)
-        .on_scroll(|viewport| Message::GridViewScroll(viewport))
+        .on_scroll(Message::GridViewScroll)
         .into()
 }
 
@@ -336,7 +336,7 @@ fn grid_card<'a>(
             .into()
     };
 
-    let mut info_row = widget::row()
+    let mut info_row = widget::row![]
         .align_y(Alignment::Center)
         .width(Length::Fill)
         .push(status_icon);
@@ -351,7 +351,7 @@ fn grid_card<'a>(
         info_row = info_row.push(widget::text(duration_text.clone()));
     }
 
-    let card_contents = widget::column()
+    let card_contents = widget::column![]
         .width(Length::Fixed(card_width))
         .spacing(GRID_CARD_CONTENT_SPACING as u16)
         .align_x(Alignment::Center)
@@ -430,8 +430,8 @@ fn grid_card<'a>(
         .on_start(on_start)
         .drag_icon(move |_offset| {
             let badge: cosmic::Element<'static, ()> = widget::layer_container(
-                widget::column().push(
-                    widget::row()
+                widget::column![].push(
+                    widget::row![]
                         .push(widget::text::body(drag_label.clone()))
                         .padding([6, 10]),
                 ),

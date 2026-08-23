@@ -7,14 +7,13 @@ use crate::fl;
 use crate::helpers::{format_optional_duration, optional_display};
 use crate::playlist::Track;
 use cosmic::{
-    cosmic_theme,
-    iced::{Alignment, Color, Length, clipboard::dnd::DndAction},
-    iced_core::widget::Tree,
+    Element, cosmic_theme,
+    iced::{Alignment, Color, Length, advanced::widget::Tree, clipboard::dnd::DndAction},
     theme, widget,
 };
 use std::sync::Arc;
 
-pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
+pub fn content<'a>(app: &AppModel) -> Element<'a, Message> {
     let cosmic_theme::Spacing {
         space_xxs,
         space_xxxs,
@@ -23,10 +22,10 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
 
     // Get pre-calculated view model with all list view data
     let Some(view_model) = app.calculate_list_view() else {
-        return widget::column();
+        return widget::column![].into();
     };
 
-    let mut content = widget::column();
+    let mut content = widget::column![];
     let visible_columns: Vec<ListColumn> = app
         .config
         .normalized_list_column_order()
@@ -38,7 +37,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
         .view_playlist
         .and_then(|playlist_id| app.playlist_service.get(playlist_id).ok())
     else {
-        return widget::column();
+        return widget::column![].into();
     };
     let active_tracks = active_playlist.tracks();
 
@@ -51,7 +50,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
         + 8.0;
 
     // Header row
-    let mut header_row = widget::row()
+    let mut header_row = widget::row![]
         .spacing(space_xxs)
         .push(widget::space::horizontal().width(space_xxxs))
         .push(widget::space::horizontal().width(Length::Fixed(view_model.icon_column_width)))
@@ -76,22 +75,22 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
     content = content.push(widget::divider::horizontal::default());
 
     // Build rows
-    let mut rows = widget::column();
+    let mut rows = widget::column![];
     rows = rows.push(widget::space::vertical().height(Length::Fixed(
         view_model.list_start as f32 * view_model.row_stride,
     )));
 
-    let mut count: u32 = view_model.list_start as u32 + 1;
-
     let selected_track_ids = Arc::clone(&view_model.selected_track_ids);
     let selected_count = selected_track_ids.len();
 
-    for (index, playlist_index) in view_model.visible_track_indices.iter().copied().enumerate() {
+    for (count, (index, playlist_index)) in (view_model.list_start as u32 + 1..)
+        .zip(view_model.visible_track_indices.iter().copied().enumerate())
+    {
         let track = &active_tracks[playlist_index];
         let track_id = track.instance_id();
         let is_playing_track = app.is_track_playing(track, view_model.is_playing_playlist);
 
-        let mut row_element = widget::row()
+        let mut row_element = widget::row![]
             .spacing(space_xxs)
             .height(Length::Fixed(view_model.row_height));
 
@@ -111,7 +110,7 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
 
             if !is_in_library {
                 // Track is not in library, show indicator
-                let icon_with_indicator = widget::row()
+                let icon_with_indicator = widget::row![]
                     .spacing(2)
                     .align_y(Alignment::Center)
                     .push(widget::icon::from_name("help-about-symbolic").size(16));
@@ -196,8 +195,8 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
             .drag_icon(move |_offset| {
                 // Visual elements next to the cursor
                 let badge: cosmic::Element<'static, ()> = widget::layer_container(
-                    widget::column().push(
-                        widget::row()
+                    widget::column![].push(
+                        widget::row![]
                             .push(widget::text::body(drag_label.clone()))
                             .padding([6, 10]),
                     ),
@@ -226,11 +225,9 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
                     .clip(true),
             );
         }
-
-        count += 1;
     }
 
-    let scrollable_contents = widget::row()
+    let scrollable_contents = widget::row![]
         .push(widget::space::vertical().height(Length::Fixed(view_model.viewport_height)))
         .push(widget::space::horizontal().width(space_xxs))
         .push(rows)
@@ -239,11 +236,11 @@ pub fn content<'a>(app: &AppModel) -> widget::Column<'a, Message> {
     let scroller = widget::scrollable(scrollable_contents)
         .id(app.list_scroll_id.clone())
         .width(Length::Fill)
-        .on_scroll(|viewport| Message::ListViewScroll(viewport));
+        .on_scroll(Message::ListViewScroll);
 
     content = content.push(scroller);
 
-    content
+    content.into()
 }
 
 fn list_column_header<'a>(
@@ -416,7 +413,7 @@ fn create_sort_button<'a>(
     spacing: u16,
     width: Length,
 ) -> widget::Button<'a, Message> {
-    let mut row = widget::row()
+    let mut row = widget::row![]
         .align_y(Alignment::Center)
         .spacing(spacing)
         .push(widget::text::heading(label));

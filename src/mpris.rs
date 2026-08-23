@@ -16,12 +16,6 @@ pub struct MprisState {
     pub loop_status: String, // "None", "Track", "Playlist"
 }
 
-impl Default for PlaybackStatus {
-    fn default() -> Self {
-        PlaybackStatus::Stopped
-    }
-}
-
 pub struct MediaPlayer2Player {
     pub tx: UnboundedSender<MprisCommand>,
     pub state: Arc<Mutex<MprisState>>, // Changed from playback_status

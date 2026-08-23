@@ -448,6 +448,6 @@ impl PlaylistService {
             None => title,
         };
 
-        display_title.replace('\r', " ").replace('\n', " ")
+        display_title.replace(['\r', '\n'], " ")
     }
 }

@@ -363,14 +363,13 @@ impl PlaybackService {
         let mut updated_order = Vec::new();
 
         for old_track in &session.order {
-            if let Some(old_id) = &old_track.metadata.id {
-                if let Some(new_track) = playlist
+            if let Some(old_id) = &old_track.metadata.id
+                && let Some(new_track) = playlist
                     .tracks()
                     .iter()
                     .find(|t| t.metadata.id.as_ref() == Some(old_id))
-                {
-                    updated_order.push(new_track.clone());
-                }
+            {
+                updated_order.push(new_track.clone());
             }
         }
 
@@ -419,17 +418,17 @@ impl PlaybackService {
         }
 
         // Verify metadata validity
-        if let Some(track) = session.order.get(session.index) {
-            if track.metadata.id.is_none() {
-                // Find next track with valid ID.
-                session.index = session
-                    .order
-                    .iter()
-                    .skip(session.index)
-                    .position(|t| t.metadata.id.is_some())
-                    .map(|pos| session.index + pos)
-                    .unwrap_or(0);
-            }
+        if let Some(track) = session.order.get(session.index)
+            && track.metadata.id.is_none()
+        {
+            // Find next track with valid ID.
+            session.index = session
+                .order
+                .iter()
+                .skip(session.index)
+                .position(|t| t.metadata.id.is_some())
+                .map(|pos| session.index + pos)
+                .unwrap_or(0);
         }
 
         true
@@ -527,15 +526,14 @@ impl PlaybackService {
             }
         }
 
-        if !self.state.dragging_slider {
-            if let Some(pos) = self
+        if !self.state.dragging_slider
+            && let Some(pos) = self
                 .active_player()
                 .playbin
                 .query_position::<gst::ClockTime>()
-            {
-                self.state.progress = pos.mseconds() as f32 / 1000.0;
-                events.push(PlaybackEvent::PositionUpdate(self.state.progress));
-            }
+        {
+            self.state.progress = pos.mseconds() as f32 / 1000.0;
+            events.push(PlaybackEvent::PositionUpdate(self.state.progress));
         }
 
         events
@@ -820,13 +818,12 @@ impl PlaybackService {
     fn load_current_track(&mut self) {
         self.collapse_to_active_player();
 
-        if let Some(session) = &self.state.session {
-            if let Some(track) = session.order.get(session.index) {
-                if let Ok(url) = Url::from_file_path(&track.path) {
-                    self.stop_slot(self.active_slot);
-                    self.active_player_mut().load(url.as_str());
-                }
-            }
+        if let Some(session) = &self.state.session
+            && let Some(track) = session.order.get(session.index)
+            && let Ok(url) = Url::from_file_path(&track.path)
+        {
+            self.stop_slot(self.active_slot);
+            self.active_player_mut().load(url.as_str());
         }
 
         if matches!(self.transition_mode, PlaybackTransitionMode::Gapless) {
@@ -840,11 +837,11 @@ impl PlaybackService {
     }
 
     fn update_now_playing(&mut self) {
-        if let Some(session) = &self.state.session {
-            if let Some(track) = session.order.get(session.index) {
-                self.state.now_playing = Some(track.metadata.clone());
-                return;
-            }
+        if let Some(session) = &self.state.session
+            && let Some(track) = session.order.get(session.index)
+        {
+            self.state.now_playing = Some(track.metadata.clone());
+            return;
         }
 
         self.state.now_playing = None;
@@ -923,19 +920,18 @@ impl PlaybackService {
     /// Advances the session index and queues the track after the new current one.
     fn advance_session_after_gapless(&mut self) {
         if let Some(ref pending_id) = self.pending_gapless_track_id.clone() {
-            if let Some(session) = &mut self.state.session {
-                if let Some(idx) = session
+            if let Some(session) = &mut self.state.session
+                && let Some(idx) = session
                     .order
                     .iter()
                     .position(|track| track.metadata.id.as_deref() == Some(pending_id.as_str()))
-                {
-                    session.index = idx;
-                }
+            {
+                session.index = idx;
             }
-        } else if let Some(next_idx) = self.compute_next_index() {
-            if let Some(session) = &mut self.state.session {
-                session.index = next_idx;
-            }
+        } else if let Some(next_idx) = self.compute_next_index()
+            && let Some(session) = &mut self.state.session
+        {
+            session.index = next_idx;
         }
 
         self.pending_gapless_track_id = None;

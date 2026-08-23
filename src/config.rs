@@ -44,17 +44,12 @@ pub enum AppTheme {
     System,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, Default)]
 pub enum ArtworkSize {
     Original,
+    #[default]
     Medium,
     Small,
-}
-
-impl Default for ArtworkSize {
-    fn default() -> Self {
-        Self::Medium
-    }
 }
 
 impl ArtworkSize {

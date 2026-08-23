@@ -49,8 +49,9 @@ impl std::fmt::Debug for PlaybackSession {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PlaybackStatus {
+    #[default]
     Stopped,
     Playing,
     Paused,

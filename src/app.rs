@@ -29,15 +29,15 @@ use cosmic::{
     dialog::file_chooser,
     iced::{
         self, Alignment, Length, Size, Subscription,
+        advanced::text::Wrapping,
         alignment::{Horizontal, Vertical},
         clipboard::mime::{AllowedMimeTypes, AsMimeTypes},
         event::{self, Event},
         font::{Font, Weight},
         keyboard::{Event as KeyEvent, Key, Modifiers, key::Named},
+        widget::scrollable::{self, AbsoluteOffset},
         window::Event as WindowEvent,
     },
-    iced_core::text::Wrapping,
-    iced_widget::scrollable::{self, AbsoluteOffset},
     surface, theme,
     widget::{
         self,
@@ -255,7 +255,7 @@ pub enum Message {
 }
 
 /// Unique identifier in RDNN (reverse domain name notation) format.
-pub const APP_ID: &'static str = "com.galacticpirateradio.ethereal-waves";
+pub const APP_ID: &str = "com.galacticpirateradio.ethereal-waves";
 
 /// Create a COSMIC application from the app model
 impl cosmic::Application for AppModel {
@@ -314,7 +314,7 @@ impl cosmic::Application for AppModel {
         let artwork_dir = app_xdg_dirs
             .get_cache_home()
             .map(|p| p.join(ARTWORK_DIR))
-            .unwrap_or(PathBuf::new());
+            .unwrap_or_default();
 
         // Construct the app model with the runtime's core.
         let mut app = AppModel {
@@ -460,22 +460,22 @@ impl cosmic::Application for AppModel {
     /// Application events will be processed through the view. Any messages emitted by
     /// events received by widgets will be passed to the update method.
     fn view(&self) -> Element<'_, Self::Message> {
-        if self.initial_load_complete == false {
-            return loading::content().into();
+        if !self.initial_load_complete {
+            return loading::content();
         }
 
         let playlist = self.playlist_service.get(self.view_playlist.unwrap()).ok();
 
         let content: Element<_> = match playlist {
-            Some(p) if p.is_library() && p.tracks().is_empty() => empty_library::content().into(),
+            Some(p) if p.is_library() && p.tracks().is_empty() => empty_library::content(),
             Some(_) => match self.config.view_mode {
-                ViewMode::List => list_view::content(self).into(),
+                ViewMode::List => list_view::content(self),
                 ViewMode::Grid => grid_view::content(self),
             },
-            None => empty_library::content().into(),
+            None => empty_library::content(),
         };
 
-        widget::container(widget::column().push(content))
+        widget::container(widget::column![].push(content))
             .apply(widget::container)
             .height(Length::Fill)
             .width(Length::Fill)
@@ -496,7 +496,7 @@ impl cosmic::Application for AppModel {
                     None
                 };
 
-                let dialog = widget::dialog()
+                widget::dialog()
                     .title(fl!("new-playlist"))
                     .primary_action(
                         widget::button::suggested(fl!("create")).on_press_maybe(complete_maybe),
@@ -511,9 +511,7 @@ impl cosmic::Application for AppModel {
                                 Message::UpdateDialog(DialogPage::NewPlaylist(name))
                             })
                             .into(),
-                    ]));
-
-                dialog
+                    ]))
             }
 
             DialogPage::RenamePlaylist { id, name } => {
@@ -523,7 +521,7 @@ impl cosmic::Application for AppModel {
                     None
                 };
 
-                let dialog = widget::dialog()
+                widget::dialog()
                     .title(fl!("rename-playlist"))
                     .primary_action(
                         widget::button::suggested(fl!("rename")).on_press_maybe(complete_maybe),
@@ -534,21 +532,17 @@ impl cosmic::Application for AppModel {
                     .control(widget::column::with_children(vec![
                         widget::text_input("", name)
                             .on_input(move |name| {
-                                Message::UpdateDialog(DialogPage::RenamePlaylist {
-                                    id: *id,
-                                    name: name,
-                                })
+                                Message::UpdateDialog(DialogPage::RenamePlaylist { id: *id, name })
                             })
                             .id(widget::Id::new(RENAME_PLAYLIST_INPUT_ID))
                             .into(),
-                    ]));
-                dialog
+                    ]))
             }
 
             DialogPage::DeletePlaylist(id) => {
                 let playlist = self.playlist_service.get(*id).ok();
 
-                let dialog = widget::dialog()
+                widget::dialog()
                     .title(fl!("delete-playlist"))
                     .icon(widget::icon::from_name("dialog-warning").size(64))
                     .body(format!("{} {}?", fl!("delete"), playlist.unwrap().name()))
@@ -560,8 +554,7 @@ impl cosmic::Application for AppModel {
                     )
                     .control(widget::column::with_children(vec![
                         widget::text(fl!("delete-warning")).into(),
-                    ]));
-                dialog
+                    ]))
             }
 
             DialogPage::DeleteSelectedFromPlaylist => {
@@ -571,7 +564,7 @@ impl cosmic::Application for AppModel {
                     .ok()
                     .unwrap();
 
-                let dialog = widget::dialog()
+                widget::dialog()
                     .title(fl!("remove-selected-from-playlist"))
                     .icon(widget::icon::from_name("dialog-warning").size(64))
                     .body(format!(
@@ -586,9 +579,7 @@ impl cosmic::Application for AppModel {
                     )
                     .secondary_action(
                         widget::button::standard(fl!("cancel")).on_press(Message::DialogCancel),
-                    );
-
-                dialog
+                    )
             }
 
             DialogPage::ConfirmPlaylistDuplicate {
@@ -603,11 +594,11 @@ impl cosmic::Application for AppModel {
                     .map(|playlist| playlist.name().to_string())
                     .unwrap_or_else(|_| fl!("playlist"));
 
-                let dialog = widget::dialog()
+                widget::dialog()
                     .title(fl!("playlist-duplicate"))
                     .icon(widget::icon::from_name("dialog-question").size(64))
                     .tertiary_action(
-                        widget::row()
+                        widget::row![]
                             .spacing(space_xxs)
                             .push(widget::button::standard(fl!("yes-to-all")).on_press(
                                 Message::PlaylistDuplicateDialogAction(
@@ -627,14 +618,11 @@ impl cosmic::Application for AppModel {
                         Message::PlaylistDuplicateDialogAction(PlaylistDuplicateDialogAction::Add),
                     ))
                     .control(widget::column::with_children(vec![
-                        track_info_row(fl!("playlist"), destination_name).into(),
-                        track_info_row(fl!("file"), Self::duplicate_track_display_name(track))
-                            .into(),
+                        track_info_row(fl!("playlist"), destination_name),
+                        track_info_row(fl!("file"), Self::duplicate_track_display_name(track)),
                         widget::text(track.path.display().to_string()).into(),
                         widget::text(fl!("add-duplicate-anyway")).into(),
-                    ]));
-
-                dialog
+                    ]))
             }
         };
 
@@ -843,22 +831,18 @@ impl cosmic::Application for AppModel {
             }
 
             Message::AddNowPlayingToPlaylist(destination_id) => {
-                if let Some(now_playing) = self.playback_service.now_playing().clone() {
-                    if let Some(now_playing_data) = self
-                        .library
-                        .from_id(&now_playing.clone().id.unwrap_or_default())
-                    {
-                        let track = Track {
-                            path: now_playing_data.0.clone(),
-                            metadata: now_playing_data.1.clone(),
-                            ..Default::default()
-                        };
+                if let Some(now_playing) = self.playback_service.now_playing()
+                    && let Some(now_playing_id) = now_playing.id.as_deref()
+                    && let Some(now_playing_data) = self.library.find_by_id(now_playing_id)
+                {
+                    let track = Track {
+                        path: now_playing_data.0.clone(),
+                        metadata: now_playing_data.1.clone(),
+                        ..Default::default()
+                    };
 
-                        return self.add_tracks_to_playlist_with_duplicate_policy(
-                            destination_id,
-                            vec![track],
-                        );
-                    }
+                    return self
+                        .add_tracks_to_playlist_with_duplicate_policy(destination_id, vec![track]);
                 }
             }
 
@@ -892,23 +876,20 @@ impl cosmic::Application for AppModel {
 
                 let now = Instant::now();
 
-                if let Some(last) = self.list_last_clicked {
-                    if is_double_click(last, DOUBLE_CLICK_THRESHOLD_MS) {
-                        let mut started = false;
-                        if let Ok(playlist) = self.playlist_service.get(playlist_id) {
-                            self.playback_service.start_session(
-                                playlist,
-                                index,
-                                self.state.shuffle,
-                            );
-                            started = true;
-                        }
-                        if started {
-                            self.sync_playback_output_from_state();
-                            self.playback_service.play();
-                            self.list_last_clicked = Some(now);
-                            return self.notify_now_playing_task();
-                        }
+                if let Some(last) = self.list_last_clicked
+                    && is_double_click(last, DOUBLE_CLICK_THRESHOLD_MS)
+                {
+                    let mut started = false;
+                    if let Ok(playlist) = self.playlist_service.get(playlist_id) {
+                        self.playback_service
+                            .start_session(playlist, index, self.state.shuffle);
+                        started = true;
+                    }
+                    if started {
+                        self.sync_playback_output_from_state();
+                        self.playback_service.play();
+                        self.list_last_clicked = Some(now);
+                        return self.notify_now_playing_task();
                     }
                 }
 
@@ -922,27 +903,23 @@ impl cosmic::Application for AppModel {
 
                 let now = Instant::now();
 
-                if let Some(last) = self.list_last_clicked {
-                    if is_double_click(last, DOUBLE_CLICK_THRESHOLD_MS) {
-                        let mut started = false;
-                        if let Ok(playlist) = self.playlist_service.get(playlist_id) {
-                            if let Some(index) =
-                                self.pick_group_playback_index(playlist, indices.as_ref())
-                            {
-                                self.playback_service.start_session(
-                                    playlist,
-                                    index,
-                                    self.state.shuffle,
-                                );
-                                started = true;
-                            }
-                        }
-                        if started {
-                            self.sync_playback_output_from_state();
-                            self.playback_service.play();
-                            self.list_last_clicked = Some(now);
-                            return self.notify_now_playing_task();
-                        }
+                if let Some(last) = self.list_last_clicked
+                    && is_double_click(last, DOUBLE_CLICK_THRESHOLD_MS)
+                {
+                    let mut started = false;
+                    if let Ok(playlist) = self.playlist_service.get(playlist_id)
+                        && let Some(index) =
+                            self.pick_group_playback_index(playlist, indices.as_ref())
+                    {
+                        self.playback_service
+                            .start_session(playlist, index, self.state.shuffle);
+                        started = true;
+                    }
+                    if started {
+                        self.sync_playback_output_from_state();
+                        self.playback_service.play();
+                        self.list_last_clicked = Some(now);
+                        return self.notify_now_playing_task();
                     }
                 }
 
@@ -1187,8 +1164,8 @@ impl cosmic::Application for AppModel {
                         let scroll_task = scrollable::scroll_to(
                             self.list_scroll_id.clone(),
                             AbsoluteOffset {
-                                x: Some(0.0 as f32),
-                                y: Some(0.0 as f32),
+                                x: Some(0.0_f32),
+                                y: Some(0.0_f32),
                             },
                         );
 
@@ -1391,7 +1368,7 @@ impl cosmic::Application for AppModel {
                         return Task::none();
                     };
 
-                    if playlist.tracks().get(index).map_or(false, |t| t.selected) {
+                    if playlist.tracks().get(index).is_some_and(|t| t.selected) {
                         let _ = self.playlist_service.deselect_track(playlist_id, index);
                     } else {
                         let _ = self.playlist_service.select_track(playlist_id, index);
@@ -1610,8 +1587,8 @@ impl cosmic::Application for AppModel {
             Message::Noop => {}
 
             // Kick off the Rename Playlist dialog
-            Message::RenamePlaylist => match self.nav.data(self.nav.active()) {
-                Some(Page::Playlist(id)) => {
+            Message::RenamePlaylist => {
+                if let Some(Page::Playlist(id)) = self.nav.data(self.nav.active()) {
                     if self.playlist_service.get(*id).ok().unwrap().is_library() {
                         return Task::none();
                     }
@@ -1622,17 +1599,15 @@ impl cosmic::Application for AppModel {
                     });
                     return widget::text_input::focus(widget::Id::new(RENAME_PLAYLIST_INPUT_ID));
                 }
-                _ => {}
-            },
+            }
 
             // Kick off the delete playlist dialog
             Message::DeletePlaylist => {
-                if let Some(Page::Playlist(id)) = self.nav.data(self.nav.active()) {
-                    if let Some(p) = self.playlist_service.get(*id).ok() {
-                        if !p.is_library() {
-                            self.dialog_pages.push_back(DialogPage::DeletePlaylist(*id));
-                        }
-                    }
+                if let Some(Page::Playlist(id)) = self.nav.data(self.nav.active())
+                    && let Ok(p) = self.playlist_service.get(*id)
+                    && !p.is_library()
+                {
+                    self.dialog_pages.push_back(DialogPage::DeletePlaylist(*id));
                 }
             }
 
@@ -1672,13 +1647,13 @@ impl cosmic::Application for AppModel {
                         source_tracks.get(&id).cloned().or_else(|| {
                             id.strip_prefix(LIBRARY_TRACK_DROP_PREFIX)
                                 .and_then(|library_id| {
-                                    self.library.from_id(&library_id.to_string()).map(
-                                        |(path, metadata)| Track {
+                                    self.library.find_by_id(library_id).map(|(path, metadata)| {
+                                        Track {
                                             path: path.clone(),
                                             metadata: metadata.clone(),
                                             ..Default::default()
-                                        },
-                                    )
+                                        }
+                                    })
                                 })
                         })
                     })
@@ -1815,8 +1790,8 @@ impl cosmic::Application for AppModel {
                 return scrollable::scroll_to(
                     self.list_scroll_id.clone(),
                     AbsoluteOffset {
-                        x: Some(0.0 as f32),
-                        y: Some(0.0 as f32),
+                        x: Some(0.0_f32),
+                        y: Some(0.0_f32),
                     },
                 );
             }
@@ -1830,17 +1805,17 @@ impl cosmic::Application for AppModel {
                 return scrollable::scroll_to(
                     self.list_scroll_id.clone(),
                     AbsoluteOffset {
-                        x: Some(0.0 as f32),
-                        y: Some(0.0 as f32),
+                        x: Some(0.0_f32),
+                        y: Some(0.0_f32),
                     },
                 );
             }
 
             Message::SelectAll => {
-                if let Some(playlist_id) = self.view_playlist {
-                    if let Err(err) = self.playlist_service.select_all(playlist_id) {
-                        eprintln!("Error selecting all tracks: {}", err);
-                    }
+                if let Some(playlist_id) = self.view_playlist
+                    && let Err(err) = self.playlist_service.select_all(playlist_id)
+                {
+                    eprintln!("Error selecting all tracks: {}", err);
                 }
 
                 self.invalidate_view_cache();
@@ -2190,7 +2165,7 @@ impl cosmic::Application for AppModel {
 
                 DialogPage::RenamePlaylist { id, name } => {
                     self.dialog_pages
-                        .update_front(DialogPage::RenamePlaylist { id: id, name: name });
+                        .update_front(DialogPage::RenamePlaylist { id, name });
                 }
 
                 DialogPage::DeletePlaylist(id) => {
@@ -2327,8 +2302,8 @@ impl cosmic::Application for AppModel {
                     scrollable::scroll_to(
                         self.list_scroll_id.clone(),
                         AbsoluteOffset {
-                            x: Some(0.0 as f32),
-                            y: Some(0.0 as f32),
+                            x: Some(0.0_f32),
+                            y: Some(0.0_f32),
                         },
                     ),
                 ]);
@@ -2340,7 +2315,7 @@ impl cosmic::Application for AppModel {
 
     /// Footer area
     fn footer(&self) -> Option<Element<'_, Message>> {
-        Some(footer(self).into())
+        Some(footer(self))
     }
 }
 
@@ -2409,11 +2384,9 @@ impl AppModel {
     pub fn update_title(&mut self) -> Task<cosmic::Action<Message>> {
         let mut window_title = fl!("app-title");
 
-        let page = self.nav.text(self.nav.active());
-
-        if page.is_some() {
+        if let Some(page) = self.nav.text(self.nav.active()) {
             window_title.push_str(" — ");
-            window_title.push_str(page.unwrap());
+            window_title.push_str(page);
         }
 
         if let Some(id) = self.core.main_window_id() {
@@ -2611,14 +2584,13 @@ impl AppModel {
                             let added = tracks_to_add.len();
                             let skipped_duplicates = duplicates.len();
 
-                            if added > 0 {
-                                if let Err(err) = self
+                            if added > 0
+                                && let Err(err) = self
                                     .playlist_service
                                     .add_tracks(destination_id, tracks_to_add)
-                                {
-                                    eprintln!("Error adding tracks: {}", err);
-                                    return Task::none();
-                                }
+                            {
+                                eprintln!("Error adding tracks: {}", err);
+                                return Task::none();
                             }
 
                             (added, skipped_duplicates, false)
@@ -2639,14 +2611,13 @@ impl AppModel {
                             let added = tracks_to_add.len();
                             let defer_notification = !duplicates.is_empty();
 
-                            if added > 0 {
-                                if let Err(err) = self
+                            if added > 0
+                                && let Err(err) = self
                                     .playlist_service
                                     .add_tracks(destination_id, tracks_to_add)
-                                {
-                                    eprintln!("Error adding tracks: {}", err);
-                                    return Task::none();
-                                }
+                            {
+                                eprintln!("Error adding tracks: {}", err);
+                                return Task::none();
                             }
 
                             if defer_notification {
@@ -2730,12 +2701,12 @@ impl AppModel {
             PlaybackTransitionMode::Crossfade => 1,
         };
         let grid_artwork_size_selected = self.config.grid_artwork_size.selected_index();
-        let mut library_column = widget::column();
+        let mut library_column = widget::column![];
 
         library_column = library_column.push(
-            row()
+            row![]
                 .push(
-                    widget::column()
+                    widget::column![]
                         .push(
                             widget::button::text(fl!("add-location"))
                                 .on_press(Message::AddLibraryDialog),
@@ -2744,7 +2715,7 @@ impl AppModel {
                         .align_x(Alignment::Start),
                 )
                 .push(
-                    widget::column()
+                    widget::column![]
                         .spacing(space_xxs)
                         .push(
                             widget::button::text(fl!("update-library"))
@@ -2765,7 +2736,7 @@ impl AppModel {
         // Create library path rows
         for (i, path) in self.config.library_paths.iter().enumerate() {
             library_column = library_column.push(
-                row()
+                row![]
                     .width(Length::Fill)
                     .padding(space_xxs)
                     // Adds text
@@ -2835,7 +2806,7 @@ impl AppModel {
         if self.config.playback_transition_mode == PlaybackTransitionMode::Crossfade {
             playback_section = playback_section.add({
                 settings::item::builder(fl!("crossfade-duration")).control(
-                    row()
+                    row![]
                         .align_y(Alignment::Center)
                         .spacing(space_xxs)
                         .push(
@@ -2861,7 +2832,7 @@ impl AppModel {
             })
             .add({
                 settings::item::builder("Bars").control(
-                    row()
+                    row![]
                         .align_y(Alignment::Center)
                         .spacing(space_xxs)
                         .push(
@@ -2877,10 +2848,10 @@ impl AppModel {
             })
             .add({
                 settings::item::builder("Color").control(
-                    widget::column()
+                    widget::column![]
                         .spacing(space_xxs)
                         .push(
-                            row()
+                            row![]
                                 .align_y(Alignment::Center)
                                 .spacing(space_xxs)
                                 .push(widget::text("R").width(Length::Fixed(16.0)))
@@ -2899,7 +2870,7 @@ impl AppModel {
                                 .push(widget::text(footer_visualizer_red.to_string())),
                         )
                         .push(
-                            row()
+                            row![]
                                 .align_y(Alignment::Center)
                                 .spacing(space_xxs)
                                 .push(widget::text("G").width(Length::Fixed(16.0)))
@@ -2922,7 +2893,7 @@ impl AppModel {
                                 .push(widget::text(footer_visualizer_green.to_string())),
                         )
                         .push(
-                            row()
+                            row![]
                                 .align_y(Alignment::Center)
                                 .spacing(space_xxs)
                                 .push(widget::text("B").width(Length::Fixed(16.0)))
@@ -2944,7 +2915,7 @@ impl AppModel {
             })
             .add({
                 settings::item::builder("Minimum alpha").control(
-                    row()
+                    row![]
                         .align_y(Alignment::Center)
                         .spacing(space_xxs)
                         .push(
@@ -2964,7 +2935,7 @@ impl AppModel {
             })
             .add({
                 settings::item::builder("Maximum alpha").control(
-                    row()
+                    row![]
                         .align_y(Alignment::Center)
                         .spacing(space_xxs)
                         .push(
@@ -3137,14 +3108,14 @@ impl AppModel {
         };
         let take = TRACK_INFO_LIST_TOTAL;
 
-        let mut column = widget::column().spacing(space_xs);
+        let mut column = widget::column![].spacing(space_xs);
 
         for (i, t) in tracks.iter().enumerate().take(take) {
-            let duration = t.metadata.duration.clone().unwrap_or(0.0);
+            let duration = t.metadata.duration.unwrap_or(0.0);
             let display_duration = format_duration(duration);
 
             let container = widget::container(
-                widget::column()
+                widget::column![]
                     .push(track_info_row(
                         fl!("title"),
                         t.metadata.title.clone().unwrap_or_default(),
@@ -3183,7 +3154,7 @@ impl AppModel {
                     ))
                     .push(track_info_row(fl!("duration"), display_duration))
                     .push(
-                        widget::row()
+                        widget::row![]
                             .width(Length::Fill)
                             .push(widget::text(t.path.to_string_lossy())),
                     ),
@@ -3426,7 +3397,7 @@ impl AppModel {
             if let Ok(obj_path) = zbus::zvariant::ObjectPath::try_from(track_id) {
                 meta.insert(
                     "mpris:trackid".to_string(),
-                    zbus::zvariant::Value::new(obj_path).into(),
+                    zbus::zvariant::Value::new(obj_path),
                 );
             }
 
@@ -3434,7 +3405,7 @@ impl AppModel {
             if let Some(title) = &now_playing.title {
                 meta.insert(
                     "xesam:title".to_string(),
-                    zbus::zvariant::Value::new(title.clone()).into(),
+                    zbus::zvariant::Value::new(title.clone()),
                 );
             }
 
@@ -3442,7 +3413,7 @@ impl AppModel {
             if let Some(artist) = &now_playing.artist {
                 meta.insert(
                     "xesam:artist".to_string(),
-                    zbus::zvariant::Value::new(vec![artist.clone()]).into(),
+                    zbus::zvariant::Value::new(vec![artist.clone()]),
                 );
             }
 
@@ -3450,7 +3421,7 @@ impl AppModel {
             if let Some(album) = &now_playing.album {
                 meta.insert(
                     "xesam:album".to_string(),
-                    zbus::zvariant::Value::new(album.clone()).into(),
+                    zbus::zvariant::Value::new(album.clone()),
                 );
             }
 
@@ -3458,23 +3429,21 @@ impl AppModel {
             if let Some(duration) = now_playing.duration {
                 meta.insert(
                     "mpris:length".to_string(),
-                    zbus::zvariant::Value::new((duration * 1_000_000.0) as i64).into(),
+                    zbus::zvariant::Value::new((duration * 1_000_000.0) as i64),
                 );
             }
 
             // Album art URL
-            if let Some(artwork_filename) = &now_playing.artwork_filename {
-                if let Some(artwork_path) = self
+            if let Some(artwork_filename) = &now_playing.artwork_filename
+                && let Some(artwork_path) = self
                     .app_xdg_dirs
                     .find_cache_file(format!("{}/{}", ARTWORK_DIR, artwork_filename))
-                {
-                    if let Ok(art_url) = url::Url::from_file_path(&artwork_path) {
-                        meta.insert(
-                            "mpris:artUrl".to_string(),
-                            zbus::zvariant::Value::new(art_url.to_string()).into(),
-                        );
-                    }
-                }
+                && let Ok(art_url) = url::Url::from_file_path(&artwork_path)
+            {
+                meta.insert(
+                    "mpris:artUrl".to_string(),
+                    zbus::zvariant::Value::new(art_url.to_string()),
+                );
             }
         }
         state.metadata = meta;
@@ -3499,40 +3468,35 @@ impl AppModel {
                 let _ = iface_ref
                     .get_mut()
                     .await
-                    .playback_status_changed(&signal_ctx)
+                    .playback_status_changed(signal_ctx)
                     .await;
+                let _ = iface_ref.get_mut().await.metadata_changed(signal_ctx).await;
+                let _ = iface_ref.get_mut().await.shuffle_changed(signal_ctx).await;
                 let _ = iface_ref
                     .get_mut()
                     .await
-                    .metadata_changed(&signal_ctx)
+                    .loop_status_changed(signal_ctx)
                     .await;
-                let _ = iface_ref.get_mut().await.shuffle_changed(&signal_ctx).await;
-                let _ = iface_ref
-                    .get_mut()
-                    .await
-                    .loop_status_changed(&signal_ctx)
-                    .await;
-                let _ = iface_ref.get_mut().await.volume_changed(&signal_ctx).await;
+                let _ = iface_ref.get_mut().await.volume_changed(signal_ctx).await;
             }
         });
     }
 
     fn start_session_maybe(&mut self) {
-        if self.playback_service.session().is_none() {
-            if let Some(playlist_id) = self.view_playlist {
-                if let Ok(playlist) = self.playlist_service.get(playlist_id) {
-                    let start_index = if self.state.shuffle && !playlist.tracks().is_empty() {
-                        use rand::Rng;
-                        rand::rng().random_range(0..playlist.tracks().len())
-                    } else {
-                        0
-                    };
+        if self.playback_service.session().is_none()
+            && let Some(playlist_id) = self.view_playlist
+            && let Ok(playlist) = self.playlist_service.get(playlist_id)
+        {
+            let start_index = if self.state.shuffle && !playlist.tracks().is_empty() {
+                use rand::Rng;
+                rand::rng().random_range(0..playlist.tracks().len())
+            } else {
+                0
+            };
 
-                    self.playback_service
-                        .start_session(playlist, start_index, self.state.shuffle);
-                    self.sync_playback_output_from_state();
-                }
-            }
+            self.playback_service
+                .start_session(playlist, start_index, self.state.shuffle);
+            self.sync_playback_output_from_state();
         }
     }
 
@@ -3562,13 +3526,12 @@ impl AppModel {
                 .divider_above(i == 0);
         }
 
-        let nav_id_to_activate = self
-            .nav
-            .iter()
-            .find_map(|id| match self.nav.data::<Page>(id) {
-                Some(Page::Playlist(pid)) if *pid == activate_id => Some(id),
-                _ => None,
-            });
+        let nav_id_to_activate = self.nav.iter().find(|&id| {
+            matches!(
+                self.nav.data::<Page>(id),
+                Some(Page::Playlist(pid)) if *pid == activate_id
+            )
+        });
 
         if let Some(id) = nav_id_to_activate {
             self.nav.activate(id);
@@ -3920,11 +3883,11 @@ impl AppModel {
                     let mut changed = false;
 
                     for track in playlist.tracks_mut() {
-                        if let Some(metadata) = library_media.get(&track.path) {
-                            if track.metadata != *metadata {
-                                track.metadata = metadata.clone();
-                                changed = true;
-                            }
+                        if let Some(metadata) = library_media.get(&track.path)
+                            && track.metadata != *metadata
+                        {
+                            track.metadata = metadata.clone();
+                            changed = true;
                         }
                     }
 
@@ -3992,7 +3955,7 @@ impl AppModel {
         // Only run app-wide keybinds if no widget already consumed the key (it was ignored)
         if status == event::Status::Ignored {
             for (key_bind, action) in self.key_binds.iter() {
-                if key_bind.matches(modifiers, &key) {
+                if key_bind.matches(modifiers, &key, None) {
                     // Don't call self.update() - return a task that processes the message
                     let message = action.message();
                     return Task::done(cosmic::Action::App(message));
@@ -4012,10 +3975,10 @@ impl AppModel {
                 return Task::done(cosmic::Action::App(Message::DialogCancel));
             }
 
-            if key == Key::Named(Named::Enter) {
-                if let Some(message) = Self::dialog_primary_message(dialog_page) {
-                    return Task::done(cosmic::Action::App(message));
-                }
+            if key == Key::Named(Named::Enter)
+                && let Some(message) = Self::dialog_primary_message(dialog_page)
+            {
+                return Task::done(cosmic::Action::App(message));
             }
 
             return Task::none();
@@ -4198,14 +4161,14 @@ impl AppModel {
 
         {
             let cache = self.view_cache.borrow();
-            if let Some(cache) = cache.as_ref() {
-                if cache.key == key {
-                    return (
-                        Arc::clone(&cache.filtered_track_indices),
-                        Arc::clone(&cache.selected_track_ids),
-                        cache.max_track_number_chars,
-                    );
-                }
+            if let Some(cache) = cache.as_ref()
+                && cache.key == key
+            {
+                return (
+                    Arc::clone(&cache.filtered_track_indices),
+                    Arc::clone(&cache.selected_track_ids),
+                    cache.max_track_number_chars,
+                );
             }
         }
 
@@ -4257,10 +4220,10 @@ impl AppModel {
 
         {
             let cache = self.grid_card_cache.borrow();
-            if let Some(cache) = cache.as_ref() {
-                if cache.key == key {
-                    return Arc::clone(&cache.cards);
-                }
+            if let Some(cache) = cache.as_ref()
+                && cache.key == key
+            {
+                return Arc::clone(&cache.cards);
             }
         }
 
@@ -4847,10 +4810,10 @@ pub enum ViewMode {
     Grid,
 }
 
-fn track_info_row<'a>(title: String, data: String) -> widget::Row<'a, Message> {
+fn track_info_row<'a>(title: String, data: String) -> Element<'a, Message> {
     let cosmic_theme::Spacing { space_xxs, .. } = theme::active().cosmic().spacing;
 
-    widget::row()
+    widget::row![]
         .push(
             widget::text(title)
                 .width(Length::FillPortion(1))
@@ -4863,6 +4826,7 @@ fn track_info_row<'a>(title: String, data: String) -> widget::Row<'a, Message> {
         .push(widget::text(data).width(Length::FillPortion(1)))
         .spacing(space_xxs)
         .width(Length::Fill)
+        .into()
 }
 
 fn list_column_label(column: ListColumn) -> String {
@@ -4888,7 +4852,7 @@ fn list_column_settings_control<'a>(
     can_move_down: bool,
     spacing: u16,
 ) -> Element<'a, Message> {
-    let mut controls = row().spacing(spacing).align_y(Alignment::Center);
+    let mut controls = row![].spacing(spacing).align_y(Alignment::Center);
 
     if column.is_toggleable() {
         let toggle: Element<'a, Message> = match column {

@@ -168,7 +168,7 @@ impl LibraryService {
                         .to_str()
                         .unwrap_or("")
                         .split('.')
-                        .last()
+                        .next_back()
                         .unwrap_or("")
                         .to_lowercase();
 
@@ -310,7 +310,7 @@ impl LibraryService {
 
     /// Extract metadata from a single audio file using GStreamer
     fn extract_metadata(
-        file: &PathBuf,
+        file: &Path,
         track_metadata: &mut MediaMetaData,
         xdg_dirs: &BaseDirectories,
         discoverer: &pbutils::Discoverer,
@@ -459,7 +459,7 @@ impl LibraryService {
 
         Self::cache_artwork_thumbnail(
             &image,
-            format.clone(),
+            format,
             original_file_name,
             ARTWORK_MEDIUM_SUFFIX,
             ARTWORK_MEDIUM_SIZE,

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
@@ -33,7 +32,7 @@ impl Library {
         Ok(())
     }
 
-    pub fn from_id(&self, id: &String) -> Option<(&PathBuf, &MediaMetaData)> {
+    pub fn find_by_id(&self, id: &str) -> Option<(&PathBuf, &MediaMetaData)> {
         self.media.iter().find(|(_, v)| v.id.as_deref() == Some(id))
     }
 }

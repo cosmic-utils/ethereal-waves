@@ -3,14 +3,14 @@
 use crate::app::{ContextPage, Message};
 use crate::fl;
 use cosmic::{
-    cosmic_theme,
+    Element, cosmic_theme,
     iced::{Alignment, Length},
     theme, widget,
 };
-pub fn content<'a>() -> widget::Column<'a, Message> {
+pub fn content<'a>() -> Element<'a, Message> {
     let cosmic_theme::Spacing { space_xxs, .. } = theme::active().cosmic().spacing;
 
-    widget::column()
+    widget::column![]
         .push(
             widget::row::with_children(vec![
                 widget::text(fl!("go-to-view")).into(),
@@ -25,4 +25,5 @@ pub fn content<'a>() -> widget::Column<'a, Message> {
         .padding(space_xxs)
         .width(Length::Fill)
         .align_x(Alignment::Center)
+        .into()
 }
