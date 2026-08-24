@@ -173,13 +173,15 @@ impl PlaylistService {
     pub fn add_tracks(&mut self, playlist_id: PlaylistId, tracks: Vec<Track>) -> Result<()> {
         let playlist = self.get_mut(playlist_id)?;
 
+        if playlist.is_library() {
+            return Err(anyhow!("Cannot add tracks to library"));
+        }
+
         for track in tracks {
             playlist.push(track);
         }
 
-        if !playlist.is_library() {
-            self.save(playlist_id)?;
-        }
+        self.save(playlist_id)?;
 
         Ok(())
     }
@@ -449,5 +451,31 @@ impl PlaylistService {
         };
 
         display_title.replace(['\r', '\n'], " ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_tracks_rejects_library_destination() {
+        let mut service = PlaylistService::new(Arc::new(BaseDirectories::new()));
+        let library = Playlist::library();
+        let library_id = library.id();
+        service.playlists.push(library);
+
+        let error = service
+            .add_tracks(library_id, vec![Track::new()])
+            .expect_err("adding tracks to the library should fail");
+
+        assert_eq!(error.to_string(), "Cannot add tracks to library");
+        assert!(
+            service
+                .get(library_id)
+                .expect("library should still exist")
+                .tracks()
+                .is_empty()
+        );
     }
 }

@@ -1628,6 +1628,14 @@ impl cosmic::Application for AppModel {
                     return Task::none();
                 };
 
+                if self
+                    .playlist_service
+                    .get(*destination_id)
+                    .is_ok_and(|playlist| playlist.is_library())
+                {
+                    return Task::none();
+                }
+
                 let source_tracks = self
                     .view_playlist
                     .and_then(|source_id| self.playlist_service.get(source_id).ok())
