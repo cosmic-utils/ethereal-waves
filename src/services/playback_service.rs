@@ -79,6 +79,7 @@ pub struct PlaybackService {
     // session order changes
     pending_gapless_track_id: Option<TrackId>,
     crossfade: Option<CrossfadeState>,
+    pending_events: Vec<PlaybackEvent>,
 }
 
 impl PlaybackService {
@@ -122,6 +123,7 @@ impl PlaybackService {
             gapless_pending: false,
             pending_gapless_track_id: None,
             crossfade: None,
+            pending_events: Vec::new(),
         }
     }
 
@@ -206,17 +208,25 @@ impl PlaybackService {
             return;
         }
 
-        self.active_player_mut().play();
-        self.state.status = PlaybackStatus::Playing;
+        match self.active_player_mut().play() {
+            Ok(()) => self.state.status = PlaybackStatus::Playing,
+            Err(err) => {
+                self.state.status = PlaybackStatus::Stopped;
+                self.pending_events.push(PlaybackEvent::Error(err));
+            }
+        }
     }
 
     pub fn pause(&mut self) {
         self.collapse_to_active_player();
-        self.active_player_mut().pause();
-        self.state.status = PlaybackStatus::Paused;
+        match self.active_player_mut().pause() {
+            Ok(()) => self.state.status = PlaybackStatus::Paused,
+            Err(err) => self.pending_events.push(PlaybackEvent::Error(err)),
+        }
     }
 
     pub fn stop(&mut self) {
+        self.pending_events.clear();
         self.stop_all_players();
         self.active_slot = PlayerSlot::Primary;
         self.gapless_pending = false;
@@ -282,6 +292,7 @@ impl PlaybackService {
             index
         };
 
+        self.pending_events.clear();
         self.stop_all_players();
         self.active_slot = PlayerSlot::Primary;
         self.gapless_pending = false;
@@ -499,7 +510,7 @@ impl PlaybackService {
     /// Process one tick cycle - handles GStreamer messages and MPRIS commands
     /// Returns events that the app should handle
     pub fn tick(&mut self) -> Vec<PlaybackEvent> {
-        let mut events = Vec::new();
+        let mut events = std::mem::take(&mut self.pending_events);
 
         if matches!(self.transition_mode, PlaybackTransitionMode::Gapless)
             && self.active_player().take_about_to_finish()
@@ -582,6 +593,7 @@ impl PlaybackService {
     }
 
     fn clear_session(&mut self) {
+        self.pending_events.clear();
         self.stop_all_players();
         self.active_slot = PlayerSlot::Primary;
         self.gapless_pending = false;
@@ -598,7 +610,9 @@ impl PlaybackService {
         {
             let player = self.player_mut(slot);
             player.set_queued_uri(None);
-            player.stop();
+            if let Err(err) = player.stop() {
+                log::warn!("{err}");
+            }
             player.set_volume(0.0);
         }
 
@@ -715,11 +729,16 @@ impl PlaybackService {
 
         self.stop_slot(fade_in_slot);
 
-        {
+        let play_result = {
             let player = self.player_mut(fade_in_slot);
             player.load(&next_uri);
             player.set_volume(0.0);
-            player.play();
+            player.play()
+        };
+
+        if let Err(err) = play_result {
+            self.stop_slot(fade_in_slot);
+            return Some(PlaybackEvent::Error(err));
         }
 
         self.active_slot = fade_in_slot;

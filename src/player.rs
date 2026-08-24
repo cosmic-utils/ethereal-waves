@@ -481,31 +481,40 @@ impl Player {
         self.playbin.set_property("uri", uri);
     }
 
-    pub fn play(&mut self) {
-        match self.playbin.set_state(gst::State::Playing) {
-            Ok(_) => {}
-            Err(error) => {
-                panic!("Failed to play: {:?}", error);
-            }
-        }
+    pub fn play(&mut self) -> Result<(), String> {
+        self.change_state(gst::State::Playing, "play")
     }
 
-    pub fn pause(&mut self) {
-        match self.playbin.set_state(gst::State::Paused) {
-            Ok(_) => {}
-            Err(error) => {
-                panic!("Failed to pause: {:?}", error);
-            }
-        }
+    pub fn pause(&mut self) -> Result<(), String> {
+        self.change_state(gst::State::Paused, "pause")
     }
 
-    pub fn stop(&mut self) {
-        match self.playbin.set_state(gst::State::Null) {
-            Ok(_) => {}
-            Err(error) => {
-                panic!("Failed to stop: {:?}", error);
+    pub fn stop(&mut self) -> Result<(), String> {
+        self.change_state(gst::State::Null, "stop")
+    }
+
+    fn change_state(&self, state: gst::State, action: &str) -> Result<(), String> {
+        self.playbin.set_state(state).map(|_| ()).map_err(|error| {
+            let bus_error = self
+                .playbin
+                .bus()
+                .and_then(|bus| bus.pop_filtered(&[gst::MessageType::Error]))
+                .and_then(|message| match message.view() {
+                    gst::MessageView::Error(error) => {
+                        let mut detail = error.error().to_string();
+                        if let Some(debug) = error.debug() {
+                            detail.push_str(&format!(" ({debug})"));
+                        }
+                        Some(detail)
+                    }
+                    _ => None,
+                });
+
+            match bus_error {
+                Some(detail) => format!("Failed to {action}: {detail}"),
+                None => format!("Failed to {action}: {error:?}"),
             }
-        }
+        })
     }
 
     pub fn set_volume(&mut self, volume: f64) {
@@ -549,5 +558,30 @@ impl Player {
         }
 
         fired
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn play_returns_resource_error_instead_of_panicking() {
+        gst::init().expect("failed to initialize GStreamer");
+        let audio_sink = gst::ElementFactory::make("fakesink")
+            .build()
+            .expect("failed to create fakesink");
+        let mut player = Player::new(Some(audio_sink));
+        let missing_file = format!(
+            "file:///tmp/ethereal-waves-missing-{}-{}.opus",
+            std::process::id(),
+            rand::random::<u64>()
+        );
+
+        player.load(&missing_file);
+        let error = player.play().expect_err("missing file should fail to play");
+
+        assert!(error.contains("Resource not found"), "{error}");
+        player.stop().expect("failed to stop test player");
     }
 }

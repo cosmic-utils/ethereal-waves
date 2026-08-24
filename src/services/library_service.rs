@@ -178,17 +178,21 @@ impl LibraryService {
                     {
                         let path = entry.into_path();
 
-                        if skip_existing && library.media.contains_key(&path) {
+                        if !discovered_paths.insert(path.clone()) {
                             continue;
                         }
 
-                        if !discovered_paths.insert(path.clone()) {
+                        if skip_existing && library.media.contains_key(&path) {
                             continue;
                         }
 
                         entries.push((path, MediaMetaData::new()));
                     }
                 }
+            }
+
+            if skip_existing {
+                Self::prune_missing_media(&mut library, &discovered_paths);
             }
 
             if entries.is_empty() {
@@ -306,6 +310,12 @@ impl LibraryService {
 
             let _ = progress_tx.send(LibraryProgress::Complete(library));
         });
+    }
+
+    fn prune_missing_media(library: &mut Library, discovered_paths: &HashSet<PathBuf>) {
+        library
+            .media
+            .retain(|path, _| discovered_paths.contains(path));
     }
 
     /// Extract metadata from a single audio file using GStreamer
@@ -534,5 +544,56 @@ impl LibraryService {
             "tiff" | "tif" => "tiff",
             _ => "jpg",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn incremental_scan_prunes_files_that_are_no_longer_discovered() {
+        let scan_root = std::env::temp_dir().join(format!(
+            "ethereal-waves-library-prune-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir_all(&scan_root).expect("failed to create test library directory");
+
+        let present_path = scan_root.join("present.mp3");
+        let missing_path = scan_root.join("missing.mp3");
+        fs::write(&present_path, vec![0; MIN_FILE_SIZE as usize + 1])
+            .expect("failed to create test audio file");
+
+        let mut library = Library::new();
+        library
+            .media
+            .insert(present_path.clone(), MediaMetaData::new());
+        library
+            .media
+            .insert(missing_path.clone(), MediaMetaData::new());
+
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
+        LibraryService::scan_new_library_files(
+            HashSet::from([scan_root.to_string_lossy().into_owned()]),
+            library,
+            Arc::new(BaseDirectories::new()),
+            progress_tx,
+            CancellationToken::new(),
+            false,
+        );
+
+        let completed = loop {
+            match progress_rx.blocking_recv() {
+                Some(LibraryProgress::Complete(library)) => break library,
+                Some(_) => {}
+                None => panic!("incremental library scan ended without completing"),
+            }
+        };
+
+        assert!(completed.media.contains_key(&present_path));
+        assert!(!completed.media.contains_key(&missing_path));
+
+        fs::remove_dir_all(&scan_root).expect("failed to clean up test library directory");
     }
 }
