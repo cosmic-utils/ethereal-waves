@@ -62,9 +62,13 @@ pub fn footer<'a>(app: &AppModel) -> Element<'a, Message> {
     if app.is_updating {
         let updating_col = widget::column![]
             .spacing(space_xxs)
-            .push(widget::row![].push(
-                widget::determinate_linear(app.update_percent / 100.0).girth(progress_bar_height),
-            ))
+            .push(
+                widget::row![].push(
+                    widget::determinate_linear(app.update_percent / 100.0)
+                        .width(Length::Fill)
+                        .girth(progress_bar_height),
+                ),
+            )
             .push(
                 widget::row![]
                     .push(widget::text(if app.update_progress == 0.0 {
